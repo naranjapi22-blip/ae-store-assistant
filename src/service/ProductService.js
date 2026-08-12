@@ -3,6 +3,10 @@ const familyFromReference = reference => {
   const parts = clean(reference).split('-');
   return parts.length === 3 && parts.every(Boolean) ? parts[0] : null;
 };
+const imageFromReference = reference => {
+  const key = clean(reference).replaceAll('-', '_');
+  return key ? `https://s7d2.scene7.com/is/image/aeo/${key}_f` : null;
+};
 
 export class ProductService {
   constructor(repository) { this.repository = repository; }
@@ -36,15 +40,15 @@ export class ProductService {
           color: item.color,
           colorDescription: item.colorDescription || '',
           colorSpanish: item.colorSpanish || '',
-          reference: item.ref
+          reference: item.ref,
+          image: imageFromReference(item.ref)
         }])).values()]
       : [];
-    const imageKey = row.ref.replaceAll('-', '_');
     const sizeStock = new Map();
     for (const item of variants) sizeStock.set(item.size, (sizeStock.get(item.size) ?? 0) + item.stock);
 
     return {
-      image: imageKey ? `https://s7d2.scene7.com/is/image/aeo/${imageKey}_f` : null,
+      image: imageFromReference(row.ref),
       description: row.description,
       additionalDescription: row.additionalDescription || '',
       material: row.materialSpanish || row.composition || '',
