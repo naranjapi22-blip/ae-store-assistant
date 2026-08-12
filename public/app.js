@@ -35,6 +35,8 @@ const sortedSizes = sizes => [...sizes].sort((a, b) => {
 const renderProduct = data => {
   const scannedSize = escapeHtml(data.scannedSize);
   const scannedStatus = stockStatus(data.stock);
+  const relatedColorCount = data.relatedColors?.length ?? 0;
+  const relatedColorLabel = relatedColorCount === 0 ? 'Sin otros colores' : relatedColorCount === 1 ? '1 color alternativo' : `${relatedColorCount} colores alternativos`;
   const colorName = data.colorDescription || data.colorSpanish || data.color || 'No disponible';
   const secondaryColor = data.colorSpanish && data.colorSpanish !== colorName ? data.colorSpanish : '';
   const additionalDescription = data.additionalDescription
@@ -43,7 +45,8 @@ const renderProduct = data => {
   const material = data.material
     ? `<section class="material-section"><span class="label">Material / composición</span><p>${escapeHtml(data.material)}</p></section>`
     : '';
-  const operationalDetails = `<div class="operational-details"><div><span class="label">Temporada</span><strong>${escapeHtml(data.season || 'No disponible')}</strong></div><div><span class="label">Referencia</span><strong>${escapeHtml(data.REFERENCIA_STYLO || 'No disponible')}</strong></div><div><span class="label">Style</span><strong>${escapeHtml(data.STYLE || 'No disponible')}</strong></div></div>`;
+  const quickSummary = `<section class="quick-summary ${scannedStatus.className}" aria-label="Consulta rápida"><div class="quick-summary-item"><span class="label">Talla consultada</span><strong>${scannedSize}</strong></div><div class="quick-summary-item"><span class="label">Stock exacto</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong></div><div class="quick-summary-item"><span class="label">Colores alternativos</span><strong>${escapeHtml(relatedColorLabel)}</strong></div><span class="quick-status">${escapeHtml(scannedStatus.label)}</span></section>`;
+  const operationalDetails = `${quickSummary}<div class="operational-details"><div><span class="label">Temporada</span><strong>${escapeHtml(data.season || 'No disponible')}</strong></div><div><span class="label">Referencia</span><strong>${escapeHtml(data.REFERENCIA_STYLO || 'No disponible')}</strong></div><div><span class="label">Style</span><strong>${escapeHtml(data.STYLE || 'No disponible')}</strong></div></div>`;
   const sizes = sortedSizes(data.sizes).map(item => {
     const status = stockStatus(item.stock);
     return `<div class="size-card ${item.size === data.scannedSize ? 'is-scanned' : ''} ${status.className}"><span class="size-name">${escapeHtml(item.size)}</span><span class="size-status">${escapeHtml(status.label)}</span><span class="size-stock">${escapeHtml(item.stock)} unidades</span></div>`;
