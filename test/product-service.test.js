@@ -47,10 +47,10 @@ test('incluye los datos esenciales para atención al cliente y no expone costos'
   assert.equal(typeof result.COSTO_TOTAL, 'undefined');
 });
 
-test('incluye mismo STYLE y misma familia y deduplica colores', async () => {
+test('incluye mismo STYLE y misma familia, deduplica colores y agrega miniaturas', async () => {
   assert.deepEqual((await product('111')).relatedColors, [
-    { color: '100', colorDescription: 'TRUE BLACK', colorSpanish: 'NEGRO', reference: '0433-1608-100' },
-    { color: '200', colorDescription: 'OLIVE', colorSpanish: 'OLIVA', reference: '0433-1608-300' }
+    { color: '100', colorDescription: 'TRUE BLACK', colorSpanish: 'NEGRO', reference: '0433-1608-100', image: 'https://s7d2.scene7.com/is/image/aeo/0433_1608_100_f' },
+    { color: '200', colorDescription: 'OLIVE', colorSpanish: 'OLIVA', reference: '0433-1608-300', image: 'https://s7d2.scene7.com/is/image/aeo/0433_1608_300_f' }
   ]);
 });
 
