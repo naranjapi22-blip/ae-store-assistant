@@ -1,0 +1,2 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import { ExcelProductRepository } from '../src/repository/ExcelProductRepository.js';
+test('lee el Excel real y conserva el código de barras como string', async () => { const repo = new ExcelProductRepository(new URL('../stock de tienda 30-06-2026.xls', import.meta.url)); const row = await repo.findByBarcode('400281669321'); assert.equal(typeof row.CODBARRAS, 'string'); assert.equal(row.ref, '0433-1608-437'); });
