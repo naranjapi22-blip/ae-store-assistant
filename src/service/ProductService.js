@@ -8,15 +8,24 @@ export class ProductService {
   constructor(repository) { this.repository = repository; }
 
   async getProductByBarcode(barcode) {
-    const row = await this.repository.findByBarcode(clean(barcode));
+    return this.getProduct(await this.repository.findByBarcode(clean(barcode)));
+  }
+
+  async getProductByReference(reference) {
+    const rows = await this.repository.findByReference(clean(reference));
+    return this.getProduct(rows[0] ?? null);
+  }
+
+  async getProduct(row) {
     if (!row) return null;
     const variants = row.ref ? await this.repository.findByReference(row.ref) : [];
     const family = familyFromReference(row.ref);
     const styleRows = family && row.style ? await this.repository.findByStyle(row.style) : [];
     const safeColors = family
-      ? [...new Set(styleRows
+      ? [...new Map(styleRows
         .filter(item => familyFromReference(item.ref) === family && item.ref !== row.ref && item.color !== row.color)
-        .map(item => item.color).filter(Boolean))]
+        .filter(item => item.ref && item.color)
+        .map(item => [item.color, { color: item.color, reference: item.ref }])).values()]
       : [];
     const imageKey = row.ref.replaceAll('-', '_');
     const sizeStock = new Map();

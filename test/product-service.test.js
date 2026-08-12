@@ -29,15 +29,15 @@ test('busca por CODBARRAS y CODBARRAS2 y agrupa tallas', async () => {
 });
 
 test('incluye mismo STYLE y misma familia aunque la descripción sea distinta', async () => {
-  assert.deepEqual((await product('111')).relatedColors, ['100', '200']);
+  assert.deepEqual((await product('111')).relatedColors, [{ color: '100', reference: '0433-1608-100' }, { color: '200', reference: '0433-1608-300' }]);
 });
 
 test('excluye mismo STYLE con familia distinta', async () => {
-  assert.ok(!(await product('111')).relatedColors.includes('999'));
+  assert.ok(!(await product('111')).relatedColors.some(variant => variant.color === '999'));
 });
 
 test('excluye misma familia con STYLE distinto', async () => {
-  assert.ok(!(await product('111')).relatedColors.includes('888'));
+  assert.ok(!(await product('111')).relatedColors.some(variant => variant.color === '888'));
 });
 
 test('devuelve relatedColors vacío para referencia inválida', async () => {
@@ -45,5 +45,15 @@ test('devuelve relatedColors vacío para referencia inválida', async () => {
 });
 
 test('devuelve colores duplicados una sola vez', async () => {
-  assert.equal((await product('111')).relatedColors.filter(color => color === '200').length, 1);
+  assert.equal((await product('111')).relatedColors.filter(variant => variant.color === '200').length, 1);
+});
+
+test('consulta una variante por REFERENCIA_STYLO', async () => {
+  const result = await new ProductService(repo).getProductByReference('0433-1608-100');
+  assert.equal(result.REFERENCIA_STYLO, '0433-1608-100');
+  assert.equal(result.color, '100');
+});
+
+test('referencia inexistente devuelve null', async () => {
+  assert.equal(await new ProductService(repo).getProductByReference('0433-1608-404'), null);
 });
