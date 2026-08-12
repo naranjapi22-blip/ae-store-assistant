@@ -66,7 +66,7 @@ export class ExcelProductRepository extends ProductRepository {
       additionalDescription: clean(value(row, 'additionalDescription')),
       articleCode: clean(value(row, 'articleCode')),
       reference: clean(value(row, 'reference'))
-    })).filter(row => row.CODBARRAS || row.CODBARRAS2 || row.supplierRef);
+    })).filter(row => row.CODBARRAS || row.CODBARRAS2 || row.supplierRef || row.ref || row.reference || row.articleCode);
   }
 
   async findByBarcode(barcode) {
@@ -75,7 +75,14 @@ export class ExcelProductRepository extends ProductRepository {
 
   async findByQuery(query) {
     const value = clean(query);
-    return this.rows.find(row => row.CODBARRAS === value || row.CODBARRAS2 === value || row.supplierRef === value) ?? null;
+    return this.rows.find(row =>
+      row.CODBARRAS === value ||
+      row.CODBARRAS2 === value ||
+      row.supplierRef === value ||
+      row.ref === value ||
+      row.reference === value ||
+      row.articleCode === value
+    ) ?? null;
   }
 
   async findByReference(ref) { return this.rows.filter(row => row.ref === clean(ref)); }
