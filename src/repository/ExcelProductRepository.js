@@ -87,4 +87,34 @@ export class ExcelProductRepository extends ProductRepository {
 
   async findByReference(ref) { return this.rows.filter(row => row.ref === clean(ref)); }
   async findByStyle(style) { return this.rows.filter(row => row.style === clean(style)); }
+
+  async searchProducts(text, limit = 20) {
+    const words = clean(text).toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const maxResults = Math.min(Math.max(Number(limit) || 20, 1), 20);
+    const matches = this.rows.filter(row => {
+      const searchable = [row.description, row.additionalDescription, row.colorDescription, row.colorSpanish, row.style, row.ref, row.reference, row.articleCode]
+        .join(' ').toLocaleLowerCase();
+      return words.every(word => searchable.includes(word));
+    });
+    const groups = new Map();
+    for (const row of matches) {
+      if (!row.ref) continue;
+      if (groups.has(row.ref)) {
+        const group = groups.get(row.ref);
+        group.stockTotal += row.stock;
+        if (row.stock > 0) group.sizesWithStock.add(row.size);
+        continue;
+      }
+      if (groups.size >= maxResults) continue;
+      groups.set(row.ref, {
+        ref: row.ref, style: row.style, description: row.description,
+        additionalDescription: row.additionalDescription, color: row.color,
+        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
+        price: row.price, season: row.season, stockTotal: row.stock,
+        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
+      });
+    }
+    return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+  }
 }

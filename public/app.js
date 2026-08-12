@@ -5,6 +5,8 @@ const input = document.querySelector('#barcode');
 const clearButton = document.querySelector('#clear');
 const result = document.querySelector('#result');
 const message = document.querySelector('#message');
+const modeButtons = document.querySelectorAll('[data-mode]');
+let searchMode = 'exact';
 
 const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = `message ${type}`; };
@@ -31,6 +33,24 @@ const sortedSizes = sizes => [...sizes].sort((a, b) => {
   const left = sizeRank(a.size); const right = sizeRank(b.size);
   return left[0] - right[0] || left[1] - right[1] || left[2].localeCompare(right[2]);
 });
+
+const renderSearchResults = data => {
+  const results = data.results || [];
+  result.innerHTML = `<section class="catalog-results"><div class="subsection-heading"><h2>Resultados</h2><span>${results.length}</span></div>${results.length ? `<div class="result-grid">${results.map(item => `<article class="result-card"><div class="result-image"><img src="${escapeHtml(item.image || `https://s7d2.scene7.com/is/image/aeo/${String(item.REFERENCIA_STYLO || item.ref || '').replaceAll('-', '_')}_f`)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="result-copy"><h3>${escapeHtml(item.description)}</h3><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO || item.ref)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock total: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-reference="${escapeHtml(item.REFERENCIA_STYLO || item.ref)}">Ver producto</button></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No se encontraron productos</h2><p>Prueba con otra descripción, color o referencia.</p></div>'}</section>`;
+  result.querySelectorAll('.result-image img').forEach(img => img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.classList.add('is-visible'); }));
+  result.querySelectorAll('[data-reference]').forEach(button => button.addEventListener('click', () => loadReference(button.dataset.reference)));
+};
+
+const setMode = mode => {
+  searchMode = mode;
+  modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
+  document.querySelector('#search-title').textContent = mode === 'exact' ? 'Escanea un código de barras' : 'Busca por descripción, color o referencia';
+  input.placeholder = mode === 'exact' ? 'Escanee o ingrese código / referencia' : 'Ej. skinny black';
+  form.querySelector('.primary-button').textContent = mode === 'exact' ? 'Consultar' : 'Buscar';
+  focusScanner();
+};
+
+modeButtons.forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
 
 const renderProduct = data => {
   const scannedSize = escapeHtml(data.scannedSize);
@@ -93,10 +113,13 @@ form.addEventListener('submit', async event => {
   if (!barcode || form.classList.contains('is-loading')) return;
   setLoading(true); setMessage('Consultando…', 'is-loading'); result.innerHTML = '';
   try {
-    const response = await fetch(`/api/products/${encodeURIComponent(barcode)}`);
+    const response = searchMode === 'catalog'
+      ? await fetch(`/api/products/search?q=${encodeURIComponent(barcode)}`)
+      : await fetch(`/api/products/${encodeURIComponent(barcode)}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(response.status === 404 ? 'Producto no encontrado' : (data.error || 'Error de consulta'));
-    renderProduct(data); setMessage('Producto encontrado', 'is-success');
+    if (!response.ok) throw new Error(response.status === 400 ? data.error : (response.status === 404 ? 'Producto no encontrado' : (data.error || 'Error de consulta')));
+    if (searchMode === 'catalog') { renderSearchResults(data); setMessage(`${data.results.length} resultados`, 'is-success'); }
+    else { renderProduct(data); setMessage('Producto encontrado', 'is-success'); }
   } catch (error) { result.innerHTML = `<div class="empty-state error-state"><span class="state-icon">!</span><h2>${escapeHtml(error.message || 'Error de consulta')}</h2><p>Verifica el código e inténtalo nuevamente.</p></div>`; setMessage('No se pudo completar la consulta', 'is-error'); }
   finally { setLoading(false); focusScanner(); }
 });

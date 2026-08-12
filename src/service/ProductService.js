@@ -27,6 +27,26 @@ export class ProductService {
     return this.getProduct(rows[0] ?? null);
   }
 
+  async searchProducts(text, limit = 20) {
+    const value = clean(text);
+    if (value.length < 2) return [];
+    const rows = await this.repository.searchProducts(value, Math.min(limit, 20));
+    return rows.map(row => ({
+      image: imageFromReference(row.ref),
+      REFERENCIA_STYLO: row.ref,
+      STYLE: row.style,
+      description: row.description,
+      additionalDescription: row.additionalDescription || '',
+      color: row.color,
+      colorDescription: row.colorDescription || '',
+      colorSpanish: row.colorSpanish || '',
+      price: Number(row.price || 0),
+      season: row.season || '',
+      stockTotal: row.stockTotal,
+      sizesWithStock: row.sizesWithStock
+    }));
+  }
+
   async getProduct(row) {
     if (!row) return null;
     const variants = row.ref ? await this.repository.findByReference(row.ref) : [];

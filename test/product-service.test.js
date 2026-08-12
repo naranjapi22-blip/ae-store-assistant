@@ -75,3 +75,16 @@ test('consulta una variante por REFERENCIA_STYLO', async () => {
 test('referencia inexistente devuelve null', async () => {
   assert.equal(await new ProductService(repo).getProductByReference('0433-1608-404'), null);
 });
+
+test('searchProducts agrupa por referencia, suma stock y limita resultados', async () => {
+  const searchRepo = {
+    searchProducts: async (_text, limit) => [{ ref: '0433-1608-437', style: '1608', description: 'Skinny', stockTotal: 51, sizesWithStock: 13, price: 100 }].slice(0, limit)
+  };
+  const results = await new ProductService(searchRepo).searchProducts('skinny black', 20);
+  assert.equal(results.length, 1); assert.equal(results[0].REFERENCIA_STYLO, '0433-1608-437'); assert.equal(results[0].stockTotal, 51); assert.equal(results[0].sizesWithStock, 13);
+});
+
+test('searchProducts rechaza texto menor a dos caracteres', async () => {
+  const service = new ProductService({ searchProducts: async () => { throw new Error('should not search'); } });
+  assert.deepEqual(await service.searchProducts('a'), []);
+});
