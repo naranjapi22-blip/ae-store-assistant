@@ -8,7 +8,9 @@ export function productApi(service) {
     try {
       product = referenceMatch
         ? await service.getProductByReference(decodeURIComponent(referenceMatch[1]))
-        : await service.getProductByBarcode(decodeURIComponent(match[1]));
+        : await (service.getProductByQuery
+          ? service.getProductByQuery(decodeURIComponent(match[1]))
+          : service.getProductByBarcode(decodeURIComponent(match[1])));
     }
     catch { response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ error: 'No se pudo consultar el producto' })); }
     response.setHeader('Content-Type', 'application/json; charset=utf-8');

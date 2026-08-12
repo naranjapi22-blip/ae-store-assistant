@@ -5,6 +5,7 @@ const clean = value => value == null ? '' : String(value).trim();
 const headers = {
   barcode: ['Cód. Barras', 'CODBARRAS'],
   barcode2: ['CODBARRAS2'],
+  season: ['Temporada'], supplierRef: ['REFPROVEEDOR'],
   description: ['Descripción'], size: ['Talla'], color: ['Color'],
   ref: ['REFERENCIA_STYLO'], style: ['STYLE'], stock: ['Stock']
 };
@@ -22,6 +23,7 @@ export class ExcelProductRepository extends ProductRepository {
     this.rows = matrix.slice(headerRow + 1).map(row => ({
       CODBARRAS: clean(index('barcode') === undefined ? '' : row[index('barcode')]),
       CODBARRAS2: clean(index('barcode2') === undefined ? '' : row[index('barcode2')]),
+      supplierRef: clean(row[index('supplierRef')]), season: clean(row[index('season')]),
       description: clean(row[index('description')]), size: clean(row[index('size')]),
       color: clean(row[index('color')]), ref: clean(row[index('ref')]),
       style: clean(row[index('style')]), stock: Number(row[index('stock')] ?? 0)
@@ -29,8 +31,12 @@ export class ExcelProductRepository extends ProductRepository {
   }
 
   async findByBarcode(barcode) {
-    const value = clean(barcode);
-    return this.rows.find(row => row.CODBARRAS === value || row.CODBARRAS2 === value) ?? null;
+    return this.findByQuery(barcode);
+  }
+
+  async findByQuery(query) {
+    const value = clean(query);
+    return this.rows.find(row => row.CODBARRAS === value || row.CODBARRAS2 === value || row.supplierRef === value) ?? null;
   }
 
   async findByReference(ref) { return this.rows.filter(row => row.ref === clean(ref)); }

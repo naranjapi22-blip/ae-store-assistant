@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ProductService } from '../src/service/ProductService.js';
 
 const rows = [
-  { CODBARRAS: '111', CODBARRAS2: '222', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', size: '2 REGULAR', stock: 4 },
+  { CODBARRAS: '111', CODBARRAS2: '222', supplierRef: 'SUP-001', season: 'SPRING 2026', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', size: '2 REGULAR', stock: 4 },
   { CODBARRAS: '333', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', size: '4 REGULAR', stock: 2 },
   { CODBARRAS: '666', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', size: '4 REGULAR', stock: 3 },
   { CODBARRAS: '555', description: 'Descripción distinta', ref: '0433-1608-100', style: '1608', color: '100', size: '2 REGULAR', stock: 2 },
@@ -16,6 +16,7 @@ const rows = [
 
 const repo = {
   findByBarcode: async code => rows.find(row => row.CODBARRAS === code || row.CODBARRAS2 === code) ?? null,
+  findByQuery: async query => rows.find(row => row.CODBARRAS === query || row.CODBARRAS2 === query || row.supplierRef === query) ?? null,
   findByReference: async ref => rows.filter(row => row.ref === ref),
   findByStyle: async style => rows.filter(row => row.style === style)
 };
@@ -26,6 +27,21 @@ test('busca por CODBARRAS y CODBARRAS2 y agrupa tallas', async () => {
   const result = await product('222');
   assert.equal(result.scannedSize, '2 REGULAR');
   assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
+});
+
+test('busca por REFPROVEEDOR como string y mantiene la agrupación por referencia', async () => {
+  const result = await new ProductService(repo).getProductByQuery('SUP-001');
+  assert.equal(result.REFERENCIA_STYLO, '0433-1608-437');
+  assert.equal(result.season, 'SPRING 2026');
+  assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
+});
+
+test('incluye temporada y no expone campos de costo', async () => {
+  const result = await new ProductService(repo).getProductByQuery('111');
+  assert.equal(result.season, 'SPRING 2026');
+  assert.equal(typeof result.COSTEESTOCK, 'undefined');
+  assert.equal(typeof result.COSTESTOCK, 'undefined');
+  assert.equal(typeof result.COSTO_TOTAL, 'undefined');
 });
 
 test('incluye mismo STYLE y misma familia aunque la descripción sea distinta', async () => {

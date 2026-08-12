@@ -11,6 +11,13 @@ export class ProductService {
     return this.getProduct(await this.repository.findByBarcode(clean(barcode)));
   }
 
+  async getProductByQuery(query) {
+    const row = this.repository.findByQuery
+      ? await this.repository.findByQuery(clean(query))
+      : await this.repository.findByBarcode(clean(query));
+    return this.getProduct(row);
+  }
+
   async getProductByReference(reference) {
     const rows = await this.repository.findByReference(clean(reference));
     return this.getProduct(rows[0] ?? null);
@@ -33,7 +40,7 @@ export class ProductService {
     return {
       image: imageKey ? `https://s7d2.scene7.com/is/image/aeo/${imageKey}_f` : null,
       description: row.description, REFERENCIA_STYLO: row.ref, STYLE: row.style,
-      color: row.color, scannedSize: row.size, stock: row.stock,
+      color: row.color, season: row.season, scannedSize: row.size, stock: row.stock,
       sizes: [...sizeStock].map(([size, stock]) => ({ size, stock })),
       relatedColors: safeColors
     };
