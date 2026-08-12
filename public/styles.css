@@ -12,6 +12,7 @@ h1 { margin-bottom: 5px; font-size: clamp(30px, 4vw, 46px); letter-spacing: -.04
 .status-dot { width: 11px; height: 11px; margin-top: 8px; border-radius: 50%; background: #4c9b6e; box-shadow: 0 0 0 5px #dbeee1; }
 .search-panel { padding: 25px 28px 22px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow); }
 .search-modes { display: flex; gap: 6px; margin-bottom: 22px; }.mode-button { padding: 8px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #777; cursor: pointer; font-size: 12px; font-weight: 700; }.mode-button.is-active { border-color: #d8d8d6; background: #f3f3f1; color: #111; }
+.catalog-tools { margin-top: 1rem; }.catalog-submodes { display: flex; gap: 6px; margin-bottom: 16px; }.catalog-mode-button, .catalog-option, .catalog-back { border: 1px solid #d8d8d6; border-radius: 8px; background: #fff; color: #333; cursor: pointer; font: inherit; }.catalog-mode-button { padding: 8px 12px; font-size: 12px; font-weight: 700; }.catalog-mode-button.is-active, .catalog-option:hover, .catalog-option:focus-visible { background: #111; border-color: #111; color: #fff; }.catalog-explorer { border-top: 1px solid #e5e5e2; padding-top: 16px; }.catalog-breadcrumb { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.catalog-back { padding: 6px 10px; font-size: 12px; }.catalog-option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }.catalog-option { min-height: 48px; padding: 10px 12px; text-align: left; }.catalog-loading { color: #777; }
 .section-heading, .subsection-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .section-heading h2 { margin-bottom: 0; font-size: 21px; letter-spacing: -.02em; }
 .keyboard-hint { color: #7f7f7f; font-size: 13px; }
@@ -138,6 +139,7 @@ input::placeholder { color: #a4a4a2; font-weight: 400; }
   .keyboard-hint { display: none; }
   .search-form { gap: 10px; margin-top: 16px; }
   .mode-button { flex: 1; }
+  .catalog-submodes { display: grid; grid-template-columns: 1fr 1fr; }.catalog-mode-button, .catalog-option, .catalog-back { min-height: 52px; }.catalog-option-grid { grid-template-columns: 1fr; }
   input { padding: 15px 10px; font-size: 17px; }
   .barcode-icon { padding-left: 13px; }
   .primary-button { width: 100%; min-height: 52px; font-size: 16px; }

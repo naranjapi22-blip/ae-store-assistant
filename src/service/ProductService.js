@@ -47,6 +47,28 @@ export class ProductService {
     }));
   }
 
+  async getDepartments() { return this.repository.getDepartments(); }
+  async getSections(department) { return this.repository.getSections(clean(department)); }
+  async getFamilies(department, section) { return this.repository.getFamilies(clean(department), clean(section)); }
+
+  async getProductsByCategory(department, section, family, limit = 20) {
+    const rows = await this.repository.getProductsByCategory(clean(department), clean(section), clean(family), Math.min(limit, 20));
+    return rows.map(row => ({
+      image: imageFromReference(row.ref),
+      REFERENCIA_STYLO: row.ref,
+      STYLE: row.style,
+      description: row.description,
+      additionalDescription: row.additionalDescription || '',
+      color: row.color,
+      colorDescription: row.colorDescription || '',
+      colorSpanish: row.colorSpanish || '',
+      price: Number(row.price || 0),
+      season: row.season || '',
+      stockTotal: row.stockTotal,
+      sizesWithStock: row.sizesWithStock
+    }));
+  }
+
   async getProduct(row) {
     if (!row) return null;
     const variants = row.ref ? await this.repository.findByReference(row.ref) : [];

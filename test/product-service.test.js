@@ -88,3 +88,17 @@ test('searchProducts rechaza texto menor a dos caracteres', async () => {
   const service = new ProductService({ searchProducts: async () => { throw new Error('should not search'); } });
   assert.deepEqual(await service.searchProducts('a'), []);
 });
+
+test('expone operaciones de navegación de catálogo', async () => {
+  const catalogRepo = {
+    getDepartments: async () => ['MEN', 'WOMEN'],
+    getSections: async () => ['MENS JEANS'],
+    getFamilies: async () => ['SKINNY'],
+    getProductsByCategory: async () => [{ ref: '0433-1608-437', style: '1608', description: 'Skinny', color: '437', price: 10, stockTotal: 5, sizesWithStock: 2 }]
+  };
+  const service = new ProductService(catalogRepo);
+  assert.deepEqual(await service.getDepartments(), ['MEN', 'WOMEN']);
+  assert.deepEqual(await service.getSections('MEN'), ['MENS JEANS']);
+  assert.deepEqual(await service.getFamilies('MEN', 'MENS JEANS'), ['SKINNY']);
+  assert.equal((await service.getProductsByCategory('MEN', 'MENS JEANS', 'SKINNY'))[0].REFERENCIA_STYLO, '0433-1608-437');
+});

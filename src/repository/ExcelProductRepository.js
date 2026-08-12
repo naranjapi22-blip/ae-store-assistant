@@ -2,6 +2,7 @@ import XLSX from 'xlsx';
 import { ProductRepository } from './ProductRepository.js';
 
 const clean = value => value == null ? '' : String(value).trim();
+const categoryKey = value => clean(value).toLocaleLowerCase();
 const headers = {
   barcode: ['Cód. Barras', 'CODBARRAS'],
   barcode2: ['CODBARRAS2'],
@@ -116,5 +117,57 @@ export class ExcelProductRepository extends ProductRepository {
       });
     }
     return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+  }
+
+  async getDepartments() {
+    return this.uniqueCategoryValues(this.rows.map(row => row.department));
+  }
+
+  async getSections(department) {
+    return this.uniqueCategoryValues(this.rows
+      .filter(row => categoryKey(row.department) === categoryKey(department))
+      .map(row => row.section));
+  }
+
+  async getFamilies(department, section) {
+    return this.uniqueCategoryValues(this.rows
+      .filter(row => categoryKey(row.department) === categoryKey(department)
+        && categoryKey(row.section) === categoryKey(section))
+      .map(row => row.family));
+  }
+
+  async getProductsByCategory(department, section, family, limit = 20) {
+    const maxResults = Math.min(Math.max(Number(limit) || 20, 1), 20);
+    const matches = this.rows.filter(row => categoryKey(row.department) === categoryKey(department)
+      && categoryKey(row.section) === categoryKey(section)
+      && categoryKey(row.family) === categoryKey(family)
+      && row.ref);
+    const groups = new Map();
+    for (const row of matches) {
+      if (!groups.has(row.ref) && groups.size >= maxResults) continue;
+      const group = groups.get(row.ref);
+      if (group) {
+        group.stockTotal += row.stock;
+        if (row.stock > 0) group.sizesWithStock.add(row.size);
+        continue;
+      }
+      groups.set(row.ref, {
+        ref: row.ref, style: row.style, description: row.description,
+        additionalDescription: row.additionalDescription, color: row.color,
+        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
+        price: row.price, season: row.season, stockTotal: row.stock,
+        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
+      });
+    }
+    return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+  }
+
+  uniqueCategoryValues(values) {
+    const unique = new Map();
+    for (const value of values) {
+      const display = clean(value);
+      if (display && !unique.has(categoryKey(display))) unique.set(categoryKey(display), display);
+    }
+    return [...unique.values()].sort((left, right) => left.localeCompare(right));
   }
 }

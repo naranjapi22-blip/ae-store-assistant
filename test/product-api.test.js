@@ -7,6 +7,10 @@ const service = {
   getProductByQuery: async query => query === '28166932' ? { REFERENCIA_STYLO: '0433-1608-437', season: 'SPRING 2026' } : null,
   getProductByReference: async reference => reference === '1177-1541-100' ? { REFERENCIA_STYLO: reference, relatedColors: [] } : null
   ,searchProducts: async (query, limit) => query === 'skinny black' ? [{ REFERENCIA_STYLO: '0433-1608-437', stockTotal: 51, sizesWithStock: 13 }].slice(0, limit) : []
+  ,getDepartments: async () => ['MEN', 'WOMEN'],
+  getSections: async department => department === 'MEN' ? ['MENS JEANS'] : [],
+  getFamilies: async (department, section) => department === 'MEN' && section === 'MENS JEANS' ? ['SKINNY'] : [],
+  getProductsByCategory: async () => [{ REFERENCIA_STYLO: '0433-1608-437', stockTotal: 5, sizesWithStock: 2 }]
 };
 
 const request = path => ({ url: path });

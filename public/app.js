@@ -6,7 +6,12 @@ const clearButton = document.querySelector('#clear');
 const result = document.querySelector('#result');
 const message = document.querySelector('#message');
 const modeButtons = document.querySelectorAll('[data-mode]');
+const catalogTools = document.querySelector('#catalog-tools');
+const catalogExplorer = document.querySelector('#catalog-explorer');
+const catalogModeButtons = document.querySelectorAll('[data-catalog-mode]');
 let searchMode = 'exact';
+let catalogMode = 'search';
+const catalogSelection = { department: '', section: '', family: '' };
 
 const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = `message ${type}`; };
@@ -34,6 +39,61 @@ const sortedSizes = sizes => [...sizes].sort((a, b) => {
   return left[0] - right[0] || left[1] - right[1] || left[2].localeCompare(right[2]);
 });
 
+const catalogFetch = async path => {
+  const response = await fetch(path);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'No se pudo cargar el catálogo');
+  return data;
+};
+
+const renderCatalogOptions = (title, options, onSelect, back) => {
+  catalogExplorer.innerHTML = `<div class="catalog-breadcrumb"><strong>${escapeHtml(title)}</strong>${back ? '<button class="catalog-back" type="button">Volver</button>' : ''}</div><div class="catalog-option-grid">${options.length ? options.map(option => `<button class="catalog-option" type="button" data-option="${escapeHtml(option)}">${escapeHtml(option)}</button>`).join('') : '<p class="empty-state">No hay opciones disponibles.</p>'}</div>`;
+  if (back) catalogExplorer.querySelector('.catalog-back').addEventListener('click', back);
+  catalogExplorer.querySelectorAll('[data-option]').forEach(button => button.addEventListener('click', () => onSelect(button.dataset.option)));
+};
+
+const showCatalogError = error => { catalogExplorer.innerHTML = `<div class="empty-state error-state"><h2>${escapeHtml(error.message || 'Error de catálogo')}</h2></div>`; };
+
+const loadDepartments = async () => {
+  catalogExplorer.hidden = false; catalogExplorer.innerHTML = '<p class="catalog-loading">Cargando departamentos...</p>';
+  try { const data = await catalogFetch('/api/catalog/departments'); renderCatalogOptions('Departamento', data.departments || [], selectDepartment); }
+  catch (error) { showCatalogError(error); }
+};
+
+const selectDepartment = async department => {
+  catalogSelection.department = department; catalogSelection.section = ''; catalogSelection.family = '';
+  catalogExplorer.innerHTML = '<p class="catalog-loading">Cargando secciones...</p>';
+  try { const data = await catalogFetch(`/api/catalog/sections?department=${encodeURIComponent(department)}`); renderCatalogOptions(`Sección · ${department}`, data.sections || [], selectSection, loadDepartments); }
+  catch (error) { showCatalogError(error); }
+};
+
+const selectSection = async section => {
+  catalogSelection.section = section; catalogSelection.family = '';
+  catalogExplorer.innerHTML = '<p class="catalog-loading">Cargando familias...</p>';
+  try { const data = await catalogFetch(`/api/catalog/families?department=${encodeURIComponent(catalogSelection.department)}&section=${encodeURIComponent(section)}`); renderCatalogOptions(`Familia · ${section}`, data.families || [], selectFamily, () => selectDepartment(catalogSelection.department)); }
+  catch (error) { showCatalogError(error); }
+};
+
+const selectFamily = async family => {
+  catalogSelection.family = family; catalogExplorer.innerHTML = '<p class="catalog-loading">Cargando productos...</p>';
+  try {
+    const query = new URLSearchParams(catalogSelection);
+    const data = await catalogFetch(`/api/catalog/products?${query}`);
+    renderCatalogOptions(`Productos · ${family}`, [], null, () => selectSection(catalogSelection.section));
+    renderSearchResults(data);
+  } catch (error) { showCatalogError(error); }
+};
+
+const setCatalogMode = mode => {
+  catalogMode = mode;
+  catalogModeButtons.forEach(button => { const active = button.dataset.catalogMode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
+  const exploring = mode === 'explore';
+  form.hidden = exploring;
+  catalogExplorer.hidden = !exploring;
+  if (exploring) { result.innerHTML = ''; loadDepartments(); }
+  else { input.placeholder = 'Ej. skinny black'; focusScanner(); }
+};
+
 const renderSearchResults = data => {
   const results = data.results || [];
   result.innerHTML = `<section class="catalog-results"><div class="subsection-heading"><h2>Resultados</h2><span>${results.length}</span></div>${results.length ? `<div class="result-grid">${results.map(item => `<article class="result-card"><div class="result-image"><img src="${escapeHtml(item.image || `https://s7d2.scene7.com/is/image/aeo/${String(item.REFERENCIA_STYLO || item.ref || '').replaceAll('-', '_')}_f`)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="result-copy"><h3>${escapeHtml(item.description)}</h3><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO || item.ref)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock total: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-reference="${escapeHtml(item.REFERENCIA_STYLO || item.ref)}">Ver producto</button></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No se encontraron productos</h2><p>Prueba con otra descripción, color o referencia.</p></div>'}</section>`;
@@ -47,10 +107,13 @@ const setMode = mode => {
   document.querySelector('#search-title').textContent = mode === 'exact' ? 'Escanea un código de barras' : 'Busca por descripción, color o referencia';
   input.placeholder = mode === 'exact' ? 'Escanee o ingrese código / referencia' : 'Ej. skinny black';
   form.querySelector('.primary-button').textContent = mode === 'exact' ? 'Consultar' : 'Buscar';
-  focusScanner();
+  catalogTools.hidden = mode !== 'catalog';
+  if (mode === 'catalog') setCatalogMode(catalogMode);
+  else { form.hidden = false; catalogExplorer.hidden = true; focusScanner(); }
 };
 
 modeButtons.forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+catalogModeButtons.forEach(button => button.addEventListener('click', () => setCatalogMode(button.dataset.catalogMode)));
 
 const renderProduct = data => {
   const scannedSize = escapeHtml(data.scannedSize);

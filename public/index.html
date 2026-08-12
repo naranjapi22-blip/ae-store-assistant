@@ -22,6 +22,13 @@
         <button class="mode-button is-active" type="button" data-mode="exact" role="tab" aria-selected="true">Escanear / exacta</button>
         <button class="mode-button" type="button" data-mode="catalog" role="tab" aria-selected="false">Buscar productos</button>
       </div>
+      <div id="catalog-tools" class="catalog-tools" hidden>
+        <div class="catalog-submodes" role="tablist" aria-label="Modo de catálogo">
+          <button class="catalog-mode-button is-active" type="button" data-catalog-mode="search" role="tab" aria-selected="true">Buscar</button>
+          <button class="catalog-mode-button" type="button" data-catalog-mode="explore" role="tab" aria-selected="false">Explorar catálogo</button>
+        </div>
+        <div id="catalog-explorer" class="catalog-explorer" hidden></div>
+      </div>
       <div class="section-heading">
         <div>
           <p class="eyebrow">BÚSQUEDA RÁPIDA</p>
