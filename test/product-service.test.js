@@ -26,6 +26,7 @@ const product = barcode => new ProductService(repo).getProductByBarcode(barcode)
 test('busca por CODBARRAS y CODBARRAS2 y agrupa tallas', async () => {
   const result = await product('222');
   assert.equal(result.scannedSize, '2 REGULAR');
+  assert.equal(result.barcode, '111');
   assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
 });
 
@@ -95,6 +96,13 @@ test('consulta una variante por REFERENCIA_STYLO', async () => {
   const result = await new ProductService(repo).getProductByReference('0433-1608-100');
   assert.equal(result.REFERENCIA_STYLO, '0433-1608-100');
   assert.equal(result.color, '100');
+  assert.equal(result.barcode, '555');
+});
+
+test('conserva STYLE internamente y expone el barcode de la fila representativa', async () => {
+  const result = await new ProductService(repo).getProductByReference('0433-1608-437');
+  assert.equal(result.STYLE, '1608');
+  assert.equal(result.barcode, '111');
 });
 
 test('referencia inexistente devuelve null', async () => {

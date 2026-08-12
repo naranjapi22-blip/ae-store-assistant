@@ -141,6 +141,7 @@ export class ProductService {
       price: Number(row.price || 0),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
+      barcode: row.CODBARRAS || row.CODBARRAS2 || '',
       department: row.department || '',
       section: row.section || '',
       family: row.family || '',
