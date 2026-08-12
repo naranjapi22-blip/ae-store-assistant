@@ -29,8 +29,8 @@ const renderProduct = data => {
   const scannedSize = escapeHtml(data.scannedSize);
   const colorName = data.colorDescription || data.colorSpanish || data.color || 'No disponible';
   const secondaryColor = data.colorSpanish && data.colorSpanish !== colorName ? data.colorSpanish : '';
-  const spanishDescription = data.spanishDescription && data.spanishDescription.toLowerCase() !== String(data.description || '').toLowerCase()
-    ? `<p class="product-description-es">${escapeHtml(data.spanishDescription)}</p>`
+  const additionalDescription = data.additionalDescription
+    ? `<p class="product-description-es">${escapeHtml(data.additionalDescription)}</p>`
     : '';
   const material = data.material
     ? `<section class="material-section"><span class="label">Material / composición</span><p>${escapeHtml(data.material)}</p></section>`
@@ -43,7 +43,7 @@ const renderProduct = data => {
     return `<button class="color-chip" type="button" data-reference="${escapeHtml(variant.reference)}"><span>${escapeHtml(name)}</span>${secondary}</button>`;
   }).join('')}</div></section>` : '';
 
-  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${spanishDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}<div class="scanned-stock"><div><span class="label">Talla escaneada</span><strong>${scannedSize}</strong></div><div class="stock-value"><span class="label">Stock</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong></div></div>${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${data.sizes.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}</article>`;
+  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${additionalDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}<div class="scanned-stock"><div><span class="label">Talla escaneada</span><strong>${scannedSize}</strong></div><div class="stock-value"><span class="label">Stock</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong></div></div>${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${data.sizes.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}</article>`;
 
   const image = result.querySelector('img');
   const placeholder = result.querySelector('.image-placeholder');
