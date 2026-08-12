@@ -27,13 +27,14 @@ test('busca por CODBARRAS y CODBARRAS2 y agrupa tallas', async () => {
   const result = await product('222');
   assert.equal(result.scannedSize, '2 REGULAR');
   assert.equal(result.barcode, '111');
-  assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
+  assert.deepEqual(result.sizes.map(({ size, stock }) => ({ size, stock })), [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
+  assert.equal(result.sizes[0].barcode, '111');
 });
 
 test('busca por REFPROVEEDOR como string y mantiene la agrupación por referencia', async () => {
   const result = await new ProductService(repo).getProductByQuery('SUP-001');
   assert.equal(result.REFERENCIA_STYLO, '0433-1608-437');
-  assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
+  assert.deepEqual(result.sizes.map(({ size, stock }) => ({ size, stock })), [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
 });
 
 test('resuelve un STYLE con una sola referencia directamente', async () => {
@@ -103,6 +104,21 @@ test('conserva STYLE internamente y expone el barcode de la fila representativa'
   const result = await new ProductService(repo).getProductByReference('0433-1608-437');
   assert.equal(result.STYLE, '1608');
   assert.equal(result.barcode, '111');
+});
+
+test('cada talla conserva barcode y usa CODBARRAS2 como fallback', async () => {
+  const fallbackRows = [
+    { ref: 'FALLBACK', style: '1', size: 'S', stock: 0, CODBARRAS: '', CODBARRAS2: '222' },
+    { ref: 'FALLBACK', style: '1', size: 'M', stock: -1, CODBARRAS: '333', CODBARRAS2: '444' }
+  ];
+  const service = new ProductService({ findByReference: async () => fallbackRows, findByStyle: async () => fallbackRows });
+  const result = await service.getProduct(fallbackRows[0]);
+  assert.deepEqual(result.sizes, [
+    { size: 'S', stock: 0, barcode: '222', barcode2: '222' },
+    { size: 'M', stock: -1, barcode: '333', barcode2: '444' }
+  ]);
+  assert.equal(result.sizes[0].stock, 0);
+  assert.equal(result.sizes[1].stock, -1);
 });
 
 test('referencia inexistente devuelve null', async () => {

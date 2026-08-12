@@ -131,7 +131,22 @@ export class ProductService {
         }])).values()]
       : [];
     const sizeStock = new Map();
-    for (const item of variants) sizeStock.set(item.size, (sizeStock.get(item.size) ?? 0) + item.stock);
+    for (const item of variants) {
+      const current = sizeStock.get(item.size);
+      const barcode = item.CODBARRAS || item.CODBARRAS2 || '';
+      if (current) {
+        current.stock += item.stock;
+        if (!current.barcode && barcode) current.barcode = barcode;
+        if (!current.barcode2 && item.CODBARRAS2) current.barcode2 = item.CODBARRAS2;
+      } else {
+        sizeStock.set(item.size, {
+          size: item.size,
+          stock: item.stock,
+          barcode,
+          barcode2: item.CODBARRAS2 || ''
+        });
+      }
+    }
 
     return {
       image: imageFromReference(row.ref),
@@ -151,7 +166,7 @@ export class ProductService {
       colorSpanish: row.colorSpanish || '',
       scannedSize: row.size,
       stock: row.stock,
-      sizes: [...sizeStock].map(([size, stock]) => ({ size, stock })),
+      sizes: [...sizeStock.values()],
       relatedColors: safeColors
     };
   }
