@@ -9,6 +9,29 @@ const productBase = (reference, style) => {
   const value = clean(style);
   return parts.length === 3 && parts.every(Boolean) && value ? `${parts[0]}|${value}` : null;
 };
+const groupByReference = rows => {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!row.ref) continue;
+    const group = groups.get(row.ref);
+    if (group) {
+      group.stockTotal += row.stock;
+      if (row.stock > 0) group.sizesWithStock.add(row.size);
+      continue;
+    }
+    groups.set(row.ref, {
+      ref: row.ref, style: row.style, description: row.description,
+      additionalDescription: row.additionalDescription, color: row.color,
+      colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
+      price: row.price, season: row.season, stockTotal: row.stock,
+      department: row.department, section: row.section, family: row.family,
+      sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
+    });
+  }
+  return [...groups.values()];
+};
+const hasSellableStock = group => group.stockTotal > 0;
+const finalizeGroups = groups => groups.map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
 const headers = {
   barcode: ['Cód. Barras', 'CODBARRAS'],
   barcode2: ['CODBARRAS2'],
@@ -103,42 +126,31 @@ export class ExcelProductRepository extends ProductRepository {
       .some(value => clean(value) === query);
     const matchedReferences = new Set(this.rows.filter(identifierMatch).map(row => row.ref).filter(Boolean));
     const matches = this.rows.filter(row => matchedReferences.has(row.ref));
-    const groups = new Map();
-    for (const row of matches) {
-      if (!row.ref) continue;
-      if (groups.has(row.ref)) {
-        const group = groups.get(row.ref);
-        group.stockTotal += row.stock;
-        if (row.stock > 0) group.sizesWithStock.add(row.size);
-        continue;
-      }
-      if (groups.size >= maxResults) continue;
-      groups.set(row.ref, {
-        ref: row.ref, style: row.style, description: row.description,
-        additionalDescription: row.additionalDescription, color: row.color,
-        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
-        price: row.price, season: row.season, stockTotal: row.stock,
-        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
-      });
-    }
-    return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+    return finalizeGroups(groupByReference(matches)
+      .filter(hasSellableStock)
+      .slice(0, maxResults));
   }
 
   async getDepartments() {
+    const sellableReferences = new Set(groupByReference(this.rows).filter(hasSellableStock).map(group => group.ref));
     return this.uniqueCategoryValues(this.rows
+      .filter(row => sellableReferences.has(row.ref))
       .map(row => row.department)
       .filter(department => !hiddenCatalogDepartments.has(categoryKey(department))));
   }
 
   async getSections(department) {
+    const sellableReferences = new Set(groupByReference(this.rows).filter(hasSellableStock).map(group => group.ref));
     return this.uniqueCategoryValues(this.rows
-      .filter(row => categoryKey(row.department) === categoryKey(department))
+      .filter(row => sellableReferences.has(row.ref) && categoryKey(row.department) === categoryKey(department))
       .map(row => row.section));
   }
 
   async getFamilies(department, section) {
+    const sellableReferences = new Set(groupByReference(this.rows).filter(hasSellableStock).map(group => group.ref));
     return this.uniqueCategoryValues(this.rows
-      .filter(row => categoryKey(row.department) === categoryKey(department)
+      .filter(row => sellableReferences.has(row.ref)
+        && categoryKey(row.department) === categoryKey(department)
         && categoryKey(row.section) === categoryKey(section))
       .map(row => row.family));
   }
@@ -149,24 +161,9 @@ export class ExcelProductRepository extends ProductRepository {
       && categoryKey(row.section) === categoryKey(section)
       && categoryKey(row.family) === categoryKey(family)
       && row.ref);
-    const groups = new Map();
-    for (const row of matches) {
-      if (!groups.has(row.ref) && groups.size >= maxResults) continue;
-      const group = groups.get(row.ref);
-      if (group) {
-        group.stockTotal += row.stock;
-        if (row.stock > 0) group.sizesWithStock.add(row.size);
-        continue;
-      }
-      groups.set(row.ref, {
-        ref: row.ref, style: row.style, description: row.description,
-        additionalDescription: row.additionalDescription, color: row.color,
-        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
-        price: row.price, season: row.season, stockTotal: row.stock,
-        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
-      });
-    }
-    return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+    return finalizeGroups(groupByReference(matches)
+      .filter(hasSellableStock)
+      .slice(0, maxResults));
   }
 
   async findSimilarProducts({ department, section, family, excludeReference, limit = 6 }) {
@@ -177,28 +174,10 @@ export class ExcelProductRepository extends ProductRepository {
       && categoryKey(row.family) === categoryKey(family)
       && row.ref && row.ref !== clean(excludeReference)
       && (!excludedBase || productBase(row.ref, row.style) !== excludedBase));
-    const groups = new Map();
-    for (const row of matches) {
-      const group = groups.get(row.ref);
-      if (group) {
-        group.stockTotal += row.stock;
-        if (row.stock > 0) group.sizesWithStock.add(row.size);
-        continue;
-      }
-      groups.set(row.ref, {
-        ref: row.ref, style: row.style, description: row.description,
-        additionalDescription: row.additionalDescription, color: row.color,
-        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
-        price: row.price, season: row.season, stockTotal: row.stock,
-        department: row.department, section: row.section, family: row.family,
-        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
-      });
-    }
-    return [...groups.values()]
-      .filter(group => group.stockTotal > 0)
+    return finalizeGroups(groupByReference(matches)
+      .filter(hasSellableStock)
       .sort((left, right) => right.stockTotal - left.stockTotal || left.ref.localeCompare(right.ref))
-      .slice(0, maxResults)
-      .map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+      .slice(0, maxResults));
   }
 
   uniqueCategoryValues(values) {

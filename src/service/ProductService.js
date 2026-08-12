@@ -7,6 +7,10 @@ const imageFromReference = reference => {
   const key = clean(reference).replaceAll('-', '_');
   return key ? `https://s7d2.scene7.com/is/image/aeo/${key}_f` : null;
 };
+const stockTotalByReference = rows => rows.reduce((totals, row) => {
+  if (row.ref) totals.set(row.ref, (totals.get(row.ref) ?? 0) + Number(row.stock ?? 0));
+  return totals;
+}, new Map());
 
 export class ProductService {
   constructor(repository) { this.repository = repository; }
@@ -31,7 +35,11 @@ export class ProductService {
 
     if (!this.repository.findByStyle) return null;
     const styleRows = await this.repository.findByStyle(value);
-    const references = [...new Set(styleRows.map(row => row.ref).filter(Boolean))];
+    const stockTotals = stockTotalByReference(styleRows);
+    const references = [...new Set(styleRows
+      .filter(row => (stockTotals.get(row.ref) ?? 0) > 0)
+      .map(row => row.ref)
+      .filter(Boolean))];
     if (!references.length) return null;
     if (references.length === 1) return { product: await this.getProduct(styleRows.find(row => row.ref === references[0])) };
 
@@ -108,9 +116,11 @@ export class ProductService {
     const variants = row.ref ? await this.repository.findByReference(row.ref) : [];
     const family = familyFromReference(row.ref);
     const styleRows = family && row.style ? await this.repository.findByStyle(row.style) : [];
+    const stockTotals = stockTotalByReference(styleRows);
     const safeColors = family
       ? [...new Map(styleRows
-        .filter(item => familyFromReference(item.ref) === family && item.ref !== row.ref && item.color !== row.color)
+        .filter(item => familyFromReference(item.ref) === family && item.ref !== row.ref && item.color !== row.color
+          && (stockTotals.get(item.ref) ?? 0) > 0)
         .filter(item => item.ref && item.color)
         .map(item => [item.color, {
           color: item.color,

@@ -16,15 +16,44 @@ test('devuelve departamentos únicos y normalizados', async () => {
 test('oculta MUEBLES con comparación case-insensitive y trim-safe sin afectar búsqueda directa', async () => {
   const isolated = new ExcelProductRepository('ae stock.xls');
   isolated.rows = [
-    { department: 'MUEBLES', ref: 'MUEBLE-001', CODBARRAS: '401', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
-    { department: ' muebles ', ref: 'MUEBLE-002', CODBARRAS: '402', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
-    { department: 'Muebles', ref: 'MUEBLE-003', CODBARRAS: '403', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
-    { department: 'WOMEN', ref: 'WOMEN-001', CODBARRAS: '404', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' }
+    { department: 'MUEBLES', ref: 'MUEBLE-001', CODBARRAS: '401', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 },
+    { department: ' muebles ', ref: 'MUEBLE-002', CODBARRAS: '402', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 },
+    { department: 'Muebles', ref: 'MUEBLE-003', CODBARRAS: '403', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 },
+    { department: 'WOMEN', ref: 'WOMEN-001', CODBARRAS: '404', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 }
   ];
   const departments = await isolated.getDepartments();
   assert.deepEqual(departments, ['WOMEN']);
   assert.equal((await isolated.findByQuery('401')).ref, 'MUEBLE-001');
   assert.equal((await isolated.findByQuery('MUEBLE-002')).department, ' muebles ');
+});
+
+test('el catálogo solo expone referencias vendibles y suma stock real', async () => {
+  const isolated = new ExcelProductRepository('ae stock.xls');
+  isolated.rows = [
+    { ref: 'SELLABLE', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: 3, size: 'S' },
+    { ref: 'SELLABLE', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: -1, size: 'M' },
+    { ref: 'ZERO', department: 'WOMEN', section: 'TOPS', family: 'BASIC', stock: 0, size: 'S' },
+    { ref: 'NEGATIVE', department: 'MEN', section: 'JEANS', family: 'SKINNY', stock: -2, size: 'S' },
+    { ref: 'EMPTY-FAMILY', department: 'WOMEN', section: 'TOPS', family: 'EMPTY', stock: 0, size: 'M' }
+  ];
+  assert.deepEqual(await isolated.getDepartments(), ['WOMEN']);
+  assert.deepEqual(await isolated.getSections('WOMEN'), ['JEANS']);
+  assert.deepEqual(await isolated.getFamilies('WOMEN', 'JEANS'), ['SKINNY']);
+  const products = await isolated.getProductsByCategory('WOMEN', 'JEANS', 'SKINNY');
+  assert.equal(products.length, 1);
+  assert.equal(products[0].ref, 'SELLABLE');
+  assert.equal(products[0].stockTotal, 2);
+  assert.deepEqual(await isolated.getProductsByCategory('WOMEN', 'TOPS', 'BASIC'), []);
+});
+
+test('la consulta exacta conserva stock cero y negativo', async () => {
+  const isolated = new ExcelProductRepository('ae stock.xls');
+  isolated.rows = [
+    { ref: 'ZERO', CODBARRAS: '100', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 0 },
+    { ref: 'NEGATIVE', CODBARRAS: '101', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: -3 }
+  ];
+  assert.equal((await isolated.findByQuery('100')).stock, 0);
+  assert.equal((await isolated.findByQuery('101')).stock, -3);
 });
 
 test('filtra secciones y familias por sus antecesores', async () => {

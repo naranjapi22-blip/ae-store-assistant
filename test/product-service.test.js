@@ -101,6 +101,26 @@ test('referencia inexistente devuelve null', async () => {
   assert.equal(await new ProductService(repo).getProductByReference('0433-1608-404'), null);
 });
 
+test('relatedColors solo incluye variantes con suma de stock positiva', async () => {
+  const variantRows = [
+    { ref: '0433-1608-437', style: '1608', color: '437', size: 'S', stock: 1 },
+    { ref: '0433-1608-100', style: '1608', color: '100', size: 'S', stock: 3 },
+    { ref: '0433-1608-100', style: '1608', color: '100', size: 'M', stock: -1 },
+    { ref: '0433-1608-200', style: '1608', color: '200', size: 'S', stock: 0 },
+    { ref: '0433-1608-300', style: '1608', color: '300', size: 'S', stock: -1 }
+  ];
+  const service = new ProductService({
+    findByQuery: async value => variantRows.find(row => row.CODBARRAS === value) ?? null,
+    findByReference: async ref => variantRows.filter(row => row.ref === ref),
+    findByStyle: async style => variantRows.filter(row => row.style === style)
+  });
+  const result = await service.getProductByQuery('missing')
+    .catch(() => null);
+  assert.equal(result, null);
+  const product = await service.getProduct(variantRows[0]);
+  assert.deepEqual(product.relatedColors.map(color => color.color), ['100']);
+});
+
 test('searchProducts agrupa por referencia, suma stock y limita resultados', async () => {
   const searchRepo = {
     searchProducts: async (_text, limit) => [{ ref: '0433-1608-437', style: '1608', description: 'Skinny', stockTotal: 51, sizesWithStock: 13, price: 100 }].slice(0, limit)
