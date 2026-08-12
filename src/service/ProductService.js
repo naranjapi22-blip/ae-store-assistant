@@ -46,7 +46,7 @@ export class ProductService {
     return {
       image: imageKey ? `https://s7d2.scene7.com/is/image/aeo/${imageKey}_f` : null,
       description: row.description,
-      spanishDescription: row.spanishDescription || '',
+      additionalDescription: row.additionalDescription || '',
       material: row.materialSpanish || row.composition || '',
       price: Number(row.price || 0),
       REFERENCIA_STYLO: row.ref,
