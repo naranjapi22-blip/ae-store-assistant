@@ -1,1 +1,44 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AE Store Assistant</title></head><body><main><h1>AE Store Assistant</h1><form id="search"><input id="barcode" inputmode="numeric" autofocus placeholder="Código de barras"><button>Consultar</button></form><p id="message"></p><section id="result"></section></main><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AE Store Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">AMERICAN EAGLE</p>
+        <h1>AE Store Assistant</h1>
+        <p class="subtitle">Consulta de inventario</p>
+      </div>
+      <div class="status-dot" aria-label="Sistema listo"></div>
+    </header>
+
+    <section class="search-panel" aria-labelledby="search-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">BÚSQUEDA RÁPIDA</p>
+          <h2 id="search-title">Escanea un código de barras</h2>
+        </div>
+        <span class="keyboard-hint">ENTER para consultar</span>
+      </div>
+      <form id="search" class="search-form">
+        <label class="sr-only" for="barcode">Código de barras</label>
+        <div class="input-wrap">
+          <span class="barcode-icon" aria-hidden="true">⌁</span>
+          <input id="barcode" inputmode="numeric" autocomplete="off" autofocus placeholder="Ingresa o escanea el código" />
+          <button id="clear" class="clear-button" type="button" aria-label="Limpiar código" hidden>×</button>
+        </div>
+        <button class="primary-button" type="submit">Consultar</button>
+      </form>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="result" aria-live="polite"></section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
