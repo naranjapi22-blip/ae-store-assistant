@@ -8,8 +8,23 @@ const uniqueKeys = values => new Set(values.map(value => String(value).trim().to
 test('devuelve departamentos únicos y normalizados', async () => {
   const values = await repo.getDepartments();
   assert.ok(values.includes('WOMEN'));
+  assert.ok(!values.some(value => value.trim().toLocaleLowerCase() === 'muebles'));
   assert.equal(values.length, uniqueKeys(values).size);
   assert.ok(values.every(value => value.trim() === value));
+});
+
+test('oculta MUEBLES con comparación case-insensitive y trim-safe sin afectar búsqueda directa', async () => {
+  const isolated = new ExcelProductRepository('ae stock.xls');
+  isolated.rows = [
+    { department: 'MUEBLES', ref: 'MUEBLE-001', CODBARRAS: '401', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
+    { department: ' muebles ', ref: 'MUEBLE-002', CODBARRAS: '402', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
+    { department: 'Muebles', ref: 'MUEBLE-003', CODBARRAS: '403', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' },
+    { department: 'WOMEN', ref: 'WOMEN-001', CODBARRAS: '404', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '' }
+  ];
+  const departments = await isolated.getDepartments();
+  assert.deepEqual(departments, ['WOMEN']);
+  assert.equal((await isolated.findByQuery('401')).ref, 'MUEBLE-001');
+  assert.equal((await isolated.findByQuery('MUEBLE-002')).department, ' muebles ');
 });
 
 test('filtra secciones y familias por sus antecesores', async () => {

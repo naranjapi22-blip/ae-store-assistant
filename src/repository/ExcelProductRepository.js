@@ -3,6 +3,7 @@ import { ProductRepository } from './ProductRepository.js';
 
 const clean = value => value == null ? '' : String(value).trim();
 const categoryKey = value => clean(value).toLocaleLowerCase();
+const hiddenCatalogDepartments = new Set(['muebles']);
 const productBase = (reference, style) => {
   const parts = clean(reference).split('-');
   const value = clean(style);
@@ -124,7 +125,9 @@ export class ExcelProductRepository extends ProductRepository {
   }
 
   async getDepartments() {
-    return this.uniqueCategoryValues(this.rows.map(row => row.department));
+    return this.uniqueCategoryValues(this.rows
+      .map(row => row.department)
+      .filter(department => !hiddenCatalogDepartments.has(categoryKey(department))));
   }
 
   async getSections(department) {
