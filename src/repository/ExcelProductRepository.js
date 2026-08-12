@@ -162,6 +162,36 @@ export class ExcelProductRepository extends ProductRepository {
     return [...groups.values()].map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
   }
 
+  async findSimilarProducts({ department, section, family, excludeReference, limit = 6 }) {
+    const maxResults = Math.min(Math.max(Number(limit) || 6, 1), 6);
+    const matches = this.rows.filter(row => categoryKey(row.department) === categoryKey(department)
+      && categoryKey(row.section) === categoryKey(section)
+      && categoryKey(row.family) === categoryKey(family)
+      && row.ref && row.ref !== clean(excludeReference));
+    const groups = new Map();
+    for (const row of matches) {
+      const group = groups.get(row.ref);
+      if (group) {
+        group.stockTotal += row.stock;
+        if (row.stock > 0) group.sizesWithStock.add(row.size);
+        continue;
+      }
+      groups.set(row.ref, {
+        ref: row.ref, style: row.style, description: row.description,
+        additionalDescription: row.additionalDescription, color: row.color,
+        colorDescription: row.colorDescription, colorSpanish: row.colorSpanish,
+        price: row.price, season: row.season, stockTotal: row.stock,
+        department: row.department, section: row.section, family: row.family,
+        sizesWithStock: new Set(row.stock > 0 ? [row.size] : [])
+      });
+    }
+    return [...groups.values()]
+      .filter(group => group.stockTotal > 0)
+      .sort((left, right) => right.stockTotal - left.stockTotal || left.ref.localeCompare(right.ref))
+      .slice(0, maxResults)
+      .map(group => ({ ...group, sizesWithStock: group.sizesWithStock.size }));
+  }
+
   uniqueCategoryValues(values) {
     const unique = new Map();
     for (const value of values) {

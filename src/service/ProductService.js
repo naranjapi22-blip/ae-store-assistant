@@ -53,7 +53,25 @@ export class ProductService {
 
   async getProductsByCategory(department, section, family, limit = 20) {
     const rows = await this.repository.getProductsByCategory(clean(department), clean(section), clean(family), Math.min(limit, 20));
-    return rows.map(row => ({
+    return rows.map(row => this.toCatalogSummary(row));
+  }
+
+  async getSimilarProducts(reference) {
+    const rows = await this.repository.findByReference(clean(reference));
+    if (!rows.length) return null;
+    const current = rows[0];
+    const similar = await this.repository.findSimilarProducts({
+      department: current.department,
+      section: current.section,
+      family: current.family,
+      excludeReference: current.ref,
+      limit: 6
+    });
+    return similar.map(row => this.toCatalogSummary(row));
+  }
+
+  toCatalogSummary(row) {
+    return {
       image: imageFromReference(row.ref),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
@@ -66,7 +84,7 @@ export class ProductService {
       season: row.season || '',
       stockTotal: row.stockTotal,
       sizesWithStock: row.sizesWithStock
-    }));
+    };
   }
 
   async getProduct(row) {
@@ -97,6 +115,9 @@ export class ProductService {
       price: Number(row.price || 0),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
+      department: row.department || '',
+      section: row.section || '',
+      family: row.family || '',
       season: row.season || '',
       color: row.color,
       colorDescription: row.colorDescription || '',

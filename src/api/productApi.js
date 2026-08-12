@@ -3,6 +3,14 @@ export function productApi(service) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     const url = new URL(request.url, 'http://localhost');
     const referenceMatch = pathname.match(/^\/api\/products\/reference\/([^/]+)$/);
+    const similarMatch = pathname.match(/^\/api\/products\/reference\/([^/]+)\/similar$/);
+    if (similarMatch) {
+      let products;
+      try { products = await service.getSimilarProducts(decodeURIComponent(similarMatch[1])); }
+      catch { response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ error: 'No se pudieron consultar productos similares' })); }
+      if (products === null) { response.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ error: 'Producto no encontrado' })); }
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ results: products }));
+    }
     if (pathname === '/api/catalog/departments') {
       try { response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ departments: await service.getDepartments() })); }
       catch { response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ error: 'No se pudo cargar el catálogo' })); }

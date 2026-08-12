@@ -101,6 +101,27 @@ const renderSearchResults = data => {
   result.querySelectorAll('[data-reference]').forEach(button => button.addEventListener('click', () => loadReference(button.dataset.reference)));
 };
 
+const renderSimilarProducts = products => {
+  const container = result.querySelector('#similar-products');
+  if (!container) return;
+  if (!products.length) { container.hidden = true; container.innerHTML = ''; return; }
+  container.hidden = false;
+  container.innerHTML = `<section class="similar-section"><div class="subsection-heading"><h3>Productos similares</h3><span>${products.length}</span></div><div class="similar-grid">${products.map(item => `<article class="similar-card"><div class="result-image"><img src="${escapeHtml(item.image)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="similar-copy"><h4>${escapeHtml(item.description)}</h4><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-similar-reference="${escapeHtml(item.REFERENCIA_STYLO)}">Ver producto</button></div></article>`).join('')}</div></section>`;
+  container.querySelectorAll('.result-image img').forEach(img => img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.classList.add('is-visible'); }));
+  container.querySelectorAll('[data-similar-reference]').forEach(button => button.addEventListener('click', () => loadReference(button.dataset.similarReference)));
+};
+
+const loadSimilarProducts = async reference => {
+  const container = result.querySelector('#similar-products');
+  if (!container) return;
+  try {
+    const response = await fetch(`/api/products/reference/${encodeURIComponent(reference)}/similar`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'No se pudieron cargar productos similares');
+    renderSimilarProducts(data.results || []);
+  } catch { container.hidden = true; container.innerHTML = ''; }
+};
+
 const setMode = mode => {
   searchMode = mode;
   modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
@@ -143,7 +164,7 @@ const renderProduct = data => {
     return `<button class="color-chip" type="button" data-reference="${escapeHtml(variant.reference)}">${thumb}<span class="color-chip-copy"><strong>${escapeHtml(name)}</strong>${secondary}</span></button>`;
   }).join('')}</div></section>` : '';
 
-  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${additionalDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}<div class="scanned-stock ${scannedStatus.className}"><div><span class="label">Talla escaneada</span><strong>${scannedSize}</strong></div><div class="stock-value"><span class="label">Stock</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong><span class="stock-badge">${escapeHtml(scannedStatus.label)}</span></div></div>${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${data.sizes.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}</article>`;
+  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${additionalDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}<div class="scanned-stock ${scannedStatus.className}"><div><span class="label">Talla escaneada</span><strong>${scannedSize}</strong></div><div class="stock-value"><span class="label">Stock</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong><span class="stock-badge">${escapeHtml(scannedStatus.label)}</span></div></div>${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${data.sizes.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}<div id="similar-products" hidden></div></article>`;
 
   const image = result.querySelector('.image-frame img');
   const placeholder = result.querySelector('.image-placeholder');
@@ -153,6 +174,7 @@ const renderProduct = data => {
     img.nextElementSibling?.classList.add('is-visible');
   }));
   result.querySelectorAll('[data-reference]').forEach(button => button.addEventListener('click', () => loadReference(button.dataset.reference)));
+  loadSimilarProducts(data.REFERENCIA_STYLO);
 };
 
 const loadReference = async reference => {
