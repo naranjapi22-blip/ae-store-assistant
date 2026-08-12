@@ -32,15 +32,30 @@ export class ProductService {
       ? [...new Map(styleRows
         .filter(item => familyFromReference(item.ref) === family && item.ref !== row.ref && item.color !== row.color)
         .filter(item => item.ref && item.color)
-        .map(item => [item.color, { color: item.color, reference: item.ref }])).values()]
+        .map(item => [item.ref, {
+          color: item.color,
+          colorDescription: item.colorDescription || '',
+          colorSpanish: item.colorSpanish || '',
+          reference: item.ref
+        }])).values()]
       : [];
     const imageKey = row.ref.replaceAll('-', '_');
     const sizeStock = new Map();
     for (const item of variants) sizeStock.set(item.size, (sizeStock.get(item.size) ?? 0) + item.stock);
+
     return {
       image: imageKey ? `https://s7d2.scene7.com/is/image/aeo/${imageKey}_f` : null,
-      description: row.description, REFERENCIA_STYLO: row.ref, STYLE: row.style,
-      color: row.color, season: row.season, scannedSize: row.size, stock: row.stock,
+      description: row.description,
+      spanishDescription: row.spanishDescription || '',
+      material: row.materialSpanish || row.composition || '',
+      price: Number(row.price || 0),
+      REFERENCIA_STYLO: row.ref,
+      STYLE: row.style,
+      color: row.color,
+      colorDescription: row.colorDescription || '',
+      colorSpanish: row.colorSpanish || '',
+      scannedSize: row.size,
+      stock: row.stock,
       sizes: [...sizeStock].map(([size, stock]) => ({ size, stock })),
       relatedColors: safeColors
     };
