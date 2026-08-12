@@ -8,9 +8,7 @@ const message = document.querySelector('#message');
 const modeButtons = document.querySelectorAll('[data-mode]');
 const catalogTools = document.querySelector('#catalog-tools');
 const catalogExplorer = document.querySelector('#catalog-explorer');
-const catalogModeButtons = document.querySelectorAll('[data-catalog-mode]');
-let searchMode = 'exact';
-let catalogMode = 'search';
+let searchMode = 'query';
 const catalogSelection = { department: '', section: '', family: '' };
 
 const focusScanner = () => { input.focus(); input.select(); };
@@ -90,16 +88,6 @@ const selectFamily = async family => {
   } catch (error) { showCatalogError(error); }
 };
 
-const setCatalogMode = mode => {
-  catalogMode = mode;
-  catalogModeButtons.forEach(button => { const active = button.dataset.catalogMode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
-  const exploring = mode === 'explore';
-  form.hidden = exploring;
-  catalogExplorer.hidden = !exploring;
-  if (exploring) { result.innerHTML = ''; loadDepartments(); }
-  else { input.placeholder = 'Ej. 0703-2143-073, 444167765 o 2143'; focusScanner(); }
-};
-
 const renderSearchResults = data => {
   const results = data.results || [];
   result.innerHTML = `<section class="catalog-results"><div class="subsection-heading"><h2>Resultados</h2><span>${results.length}</span></div>${results.length ? `<div class="result-grid">${results.map(item => `<article class="result-card"><div class="result-image"><img src="${escapeHtml(item.image || `https://s7d2.scene7.com/is/image/aeo/${String(item.REFERENCIA_STYLO || item.ref || '').replaceAll('-', '_')}_f`)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="result-copy"><h3>${escapeHtml(item.description)}</h3><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO || item.ref)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock total: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-reference="${escapeHtml(item.REFERENCIA_STYLO || item.ref)}">Ver producto</button></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No se encontraron productos</h2><p>Prueba con otra descripción, color o referencia.</p></div>'}</section>`;
@@ -131,16 +119,18 @@ const loadSimilarProducts = async reference => {
 const setMode = mode => {
   searchMode = mode;
   modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
-  document.querySelector('#search-title').textContent = mode === 'exact' ? 'Escanea un código de barras' : 'Busca por referencia, código de barras o STYLE';
-  input.placeholder = mode === 'exact' ? 'Escanee o ingrese código / referencia' : 'Ej. 0703-2143-073, 444167765 o 2143';
-  form.querySelector('.primary-button').textContent = mode === 'exact' ? 'Consultar' : 'Buscar';
+  const querying = mode === 'query';
+  document.querySelector('#search-title').textContent = querying ? 'Consultar producto' : 'Explorar catálogo';
+  input.placeholder = 'Escanee o ingrese código, referencia o STYLE';
+  form.querySelector('.primary-button').textContent = 'Consultar';
   catalogTools.hidden = mode !== 'catalog';
-  if (mode === 'catalog') setCatalogMode(catalogMode);
-  else { form.hidden = false; catalogExplorer.hidden = true; focusScanner(); }
+  form.hidden = !querying;
+  catalogExplorer.hidden = querying;
+  if (querying) focusScanner();
+  else { result.innerHTML = ''; loadDepartments(); }
 };
 
 modeButtons.forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
-catalogModeButtons.forEach(button => button.addEventListener('click', () => setCatalogMode(button.dataset.catalogMode)));
 
 const renderProduct = data => {
   const scannedSize = escapeHtml(data.scannedSize);
@@ -204,15 +194,13 @@ form.addEventListener('submit', async event => {
   if (!barcode || form.classList.contains('is-loading')) return;
   setLoading(true); setMessage('Consultando…', 'is-loading'); result.innerHTML = '';
   try {
-    const response = searchMode === 'catalog'
-      ? await fetch(`/api/products/search?q=${encodeURIComponent(barcode)}`)
-      : await fetch(`/api/products/${encodeURIComponent(barcode)}`);
+    const response = await fetch(`/api/products/${encodeURIComponent(barcode)}`);
     const data = await response.json();
-    if (!response.ok) throw new Error(response.status === 400 ? data.error : (response.status === 404 ? 'Producto no encontrado' : (data.error || 'Error de consulta')));
-    if (searchMode === 'catalog') { renderSearchResults(data); setMessage(`${data.results.length} resultados`, 'is-success'); }
+    if (!response.ok) throw new Error(response.status === 404 ? 'No se encontró ningún producto.' : (data.error || 'Error de consulta'));
+    if (data.results) { renderSearchResults(data); setMessage(`${data.results.length} referencias encontradas`, 'is-success'); }
     else { renderProduct(data); setMessage('Producto encontrado', 'is-success'); }
-  } catch (error) { result.innerHTML = `<div class="empty-state error-state"><span class="state-icon">!</span><h2>${escapeHtml(error.message || 'Error de consulta')}</h2><p>Verifica el código e inténtalo nuevamente.</p></div>`; setMessage('No se pudo completar la consulta', 'is-error'); }
+  } catch (error) { result.innerHTML = `<div class="empty-state error-state"><span class="state-icon">!</span><h2>${escapeHtml(error.message || 'Error de consulta')}</h2><p>Verifica el valor e inténtalo nuevamente.</p></div>`; setMessage('No se pudo completar la consulta', 'is-error'); }
   finally { setLoading(false); focusScanner(); }
 });
 
-setMessage('Listo para escanear');
+setMessage('Listo para consultar');

@@ -22,6 +22,22 @@ export class ProductService {
     return this.getProduct(row);
   }
 
+  async resolveProductQuery(query) {
+    const value = clean(query);
+    if (!value) return null;
+
+    const exact = await this.getProductByQuery(value);
+    if (exact) return { product: exact };
+
+    if (!this.repository.findByStyle) return null;
+    const styleRows = await this.repository.findByStyle(value);
+    const references = [...new Set(styleRows.map(row => row.ref).filter(Boolean))];
+    if (!references.length) return null;
+    if (references.length === 1) return { product: await this.getProduct(styleRows.find(row => row.ref === references[0])) };
+
+    return { results: await this.searchProducts(value, 20) };
+  }
+
   async getProductByReference(reference) {
     const rows = await this.repository.findByReference(clean(reference));
     return this.getProduct(rows[0] ?? null);

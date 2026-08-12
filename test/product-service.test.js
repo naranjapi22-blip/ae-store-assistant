@@ -35,6 +35,31 @@ test('busca por REFPROVEEDOR como string y mantiene la agrupación por referenci
   assert.deepEqual(result.sizes, [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
 });
 
+test('resuelve un STYLE con una sola referencia directamente', async () => {
+  const service = new ProductService({
+    findByQuery: async () => null,
+    findByStyle: async () => [rows[0], rows[1], rows[2]],
+    findByReference: async ref => rows.filter(row => row.ref === ref)
+  });
+  const result = await service.resolveProductQuery('1608');
+  assert.equal(result.product.REFERENCIA_STYLO, '0433-1608-437');
+  assert.equal(result.results, undefined);
+});
+
+test('resuelve un STYLE con varias referencias como lista agrupada', async () => {
+  const service = new ProductService({
+    findByQuery: async () => null,
+    findByStyle: async () => rows.filter(row => row.style === '1608'),
+    searchProducts: async (_query, limit) => [
+      { ref: '0433-1608-437', style: '1608', description: 'Producto base', stockTotal: 9, sizesWithStock: 2 },
+      { ref: '9999-1608-999', style: '1608', description: 'Otra familia', stockTotal: 1, sizesWithStock: 1 }
+    ].slice(0, limit)
+  });
+  const result = await service.resolveProductQuery('1608');
+  assert.equal(result.product, undefined);
+  assert.deepEqual(result.results.map(item => item.REFERENCIA_STYLO), ['0433-1608-437', '9999-1608-999']);
+});
+
 test('incluye los datos esenciales para atención al cliente y no expone costos', async () => {
   const result = await new ProductService(repo).getProductByQuery('111');
   assert.equal(result.price, 41700);

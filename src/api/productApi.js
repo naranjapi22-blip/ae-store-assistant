@@ -42,16 +42,22 @@ export function productApi(service) {
     const match = pathname.match(/^\/api\/products\/([^/]+)$/);
     if (!referenceMatch && !match) { response.writeHead(404); return response.end(JSON.stringify({ error: 'Not found' })); }
     let product;
+    let resolution;
     try {
-      product = referenceMatch
-        ? await service.getProductByReference(decodeURIComponent(referenceMatch[1]))
-        : await (service.getProductByQuery
+      if (referenceMatch) {
+        product = await service.getProductByReference(decodeURIComponent(referenceMatch[1]));
+      } else if (service.resolveProductQuery) {
+        resolution = await service.resolveProductQuery(decodeURIComponent(match[1]));
+        product = resolution?.product ?? null;
+      } else {
+        product = await (service.getProductByQuery
           ? service.getProductByQuery(decodeURIComponent(match[1]))
           : service.getProductByBarcode(decodeURIComponent(match[1])));
+      }
     }
     catch { response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' }); return response.end(JSON.stringify({ error: 'No se pudo consultar el producto' })); }
     response.setHeader('Content-Type', 'application/json; charset=utf-8');
-    if (!product) { response.writeHead(404); return response.end(JSON.stringify({ error: 'Producto no encontrado' })); }
-    response.writeHead(200); response.end(JSON.stringify(product));
+    if (!product && !resolution?.results) { response.writeHead(404); return response.end(JSON.stringify({ error: 'Producto no encontrado' })); }
+    response.writeHead(200); response.end(JSON.stringify(resolution?.results ? { results: resolution.results } : product));
   };
 }

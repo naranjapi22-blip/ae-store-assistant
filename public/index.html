@@ -18,21 +18,17 @@
     </header>
 
     <section class="search-panel" aria-labelledby="search-title">
-      <div class="search-modes" role="tablist" aria-label="Modo de búsqueda">
-        <button class="mode-button is-active" type="button" data-mode="exact" role="tab" aria-selected="true">Escanear / exacta</button>
-        <button class="mode-button" type="button" data-mode="catalog" role="tab" aria-selected="false">Buscar productos</button>
+      <div class="search-modes" role="tablist" aria-label="Ruta de consulta">
+        <button class="mode-button is-active" type="button" data-mode="query" role="tab" aria-selected="true">Consultar producto</button>
+        <button class="mode-button" type="button" data-mode="catalog" role="tab" aria-selected="false">Explorar catálogo</button>
       </div>
       <div id="catalog-tools" class="catalog-tools" hidden>
-        <div class="catalog-submodes" role="tablist" aria-label="Modo de catálogo">
-          <button class="catalog-mode-button is-active" type="button" data-catalog-mode="search" role="tab" aria-selected="true">Buscar</button>
-          <button class="catalog-mode-button" type="button" data-catalog-mode="explore" role="tab" aria-selected="false">Explorar catálogo</button>
-        </div>
         <div id="catalog-explorer" class="catalog-explorer" hidden></div>
       </div>
       <div class="section-heading">
         <div>
           <p class="eyebrow">BÚSQUEDA RÁPIDA</p>
-          <h2 id="search-title">Escanea un código de barras</h2>
+          <h2 id="search-title">Consultar producto</h2>
         </div>
         <span class="keyboard-hint">ENTER para consultar</span>
       </div>
@@ -40,7 +36,7 @@
         <label class="sr-only" for="barcode">Código de barras</label>
         <div class="input-wrap">
           <span class="barcode-icon" aria-hidden="true">⌁</span>
-          <input id="barcode" inputmode="text" autocomplete="off" autofocus placeholder="Escanee o ingrese código / referencia" />
+          <input id="barcode" inputmode="text" autocomplete="off" autofocus placeholder="Escanee o ingrese código, referencia o STYLE" />
           <button id="clear" class="clear-button" type="button" aria-label="Limpiar código" hidden>×</button>
         </div>
         <button class="primary-button" type="submit">Consultar</button>
