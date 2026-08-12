@@ -37,3 +37,18 @@ test('API de similares devuelve array vacío cuando no hay alternativas', async 
   assert.equal(state.status, 200);
   assert.deepEqual(JSON.parse(state.body), { results: [] });
 });
+
+test('una variante excluida de similares sigue siendo una relatedColor', async () => {
+  const product = {
+    ref: '0703-2143-073', style: '2143', color: '073', department: 'AERIE', section: 'SKIRTS', family: '703',
+    description: 'Current', size: 'M', stock: 2
+  };
+  const variant = { ...product, ref: '0703-2143-119', color: '119', description: 'Variant' };
+  const service = new ProductService({
+    findByReference: async reference => reference === product.ref ? [product] : [variant],
+    findByStyle: async () => [product, variant],
+    findSimilarProducts: async () => []
+  });
+  const result = await service.getProduct(product);
+  assert.equal(result.relatedColors[0].reference, '0703-2143-119');
+});

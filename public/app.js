@@ -52,6 +52,11 @@ const renderCatalogOptions = (title, options, onSelect, back) => {
   catalogExplorer.querySelectorAll('[data-option]').forEach(button => button.addEventListener('click', () => onSelect(button.dataset.option)));
 };
 
+const renderCatalogProductHeader = (title, back) => {
+  catalogExplorer.innerHTML = `<div class="catalog-breadcrumb"><strong>${escapeHtml(title)}</strong>${back ? '<button class="catalog-back" type="button">Volver</button>' : ''}</div>`;
+  if (back) catalogExplorer.querySelector('.catalog-back').addEventListener('click', back);
+};
+
 const showCatalogError = error => { catalogExplorer.innerHTML = `<div class="empty-state error-state"><h2>${escapeHtml(error.message || 'Error de catálogo')}</h2></div>`; };
 
 const loadDepartments = async () => {
@@ -79,8 +84,9 @@ const selectFamily = async family => {
   try {
     const query = new URLSearchParams(catalogSelection);
     const data = await catalogFetch(`/api/catalog/products?${query}`);
-    renderCatalogOptions(`Productos · ${family}`, [], null, () => selectSection(catalogSelection.section));
+    renderCatalogProductHeader(`Productos · ${family}`, () => selectSection(catalogSelection.section));
     renderSearchResults(data);
+    if (!(data.results || []).length) result.querySelector('.empty-state h2').textContent = 'No se encontraron productos en esta familia.';
   } catch (error) { showCatalogError(error); }
 };
 

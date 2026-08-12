@@ -3,6 +3,11 @@ import { ProductRepository } from './ProductRepository.js';
 
 const clean = value => value == null ? '' : String(value).trim();
 const categoryKey = value => clean(value).toLocaleLowerCase();
+const productBase = (reference, style) => {
+  const parts = clean(reference).split('-');
+  const value = clean(style);
+  return parts.length === 3 && parts.every(Boolean) && value ? `${parts[0]}|${value}` : null;
+};
 const headers = {
   barcode: ['Cód. Barras', 'CODBARRAS'],
   barcode2: ['CODBARRAS2'],
@@ -164,10 +169,12 @@ export class ExcelProductRepository extends ProductRepository {
 
   async findSimilarProducts({ department, section, family, excludeReference, limit = 6 }) {
     const maxResults = Math.min(Math.max(Number(limit) || 6, 1), 6);
+    const excludedBase = productBase(excludeReference, this.rows.find(row => row.ref === clean(excludeReference))?.style);
     const matches = this.rows.filter(row => categoryKey(row.department) === categoryKey(department)
       && categoryKey(row.section) === categoryKey(section)
       && categoryKey(row.family) === categoryKey(family)
-      && row.ref && row.ref !== clean(excludeReference));
+      && row.ref && row.ref !== clean(excludeReference)
+      && (!excludedBase || productBase(row.ref, row.style) !== excludedBase));
     const groups = new Map();
     for (const row of matches) {
       const group = groups.get(row.ref);

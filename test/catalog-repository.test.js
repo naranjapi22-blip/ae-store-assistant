@@ -50,3 +50,15 @@ test('encuentra similares por clasificación, excluye referencia y stock cero, y
   assert.equal(results[0].stockTotal, 5);
   assert.equal(results[0].sizesWithStock, 2);
 });
+
+test('excluye variantes del mismo producto base pero permite el mismo STYLE de otra familia', async () => {
+  const isolated = new ExcelProductRepository('ae stock.xls');
+  isolated.rows = [
+    { ref: '0703-2143-073', style: '2143', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 2, size: 'M' },
+    { ref: '0703-2143-119', style: '2143', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 10, size: 'M' },
+    { ref: '9999-2143-200', style: '2143', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 8, size: 'M' },
+    { ref: '0703-9999-300', style: '9999', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 6, size: 'M' }
+  ];
+  const results = await isolated.findSimilarProducts({ department: 'AERIE', section: 'SKIRTS', family: '703', excludeReference: '0703-2143-073', limit: 6 });
+  assert.deepEqual(results.map(row => row.ref), ['9999-2143-200', '0703-9999-300']);
+});
