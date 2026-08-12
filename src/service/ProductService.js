@@ -32,7 +32,7 @@ export class ProductService {
       ? [...new Map(styleRows
         .filter(item => familyFromReference(item.ref) === family && item.ref !== row.ref && item.color !== row.color)
         .filter(item => item.ref && item.color)
-        .map(item => [item.ref, {
+        .map(item => [item.color, {
           color: item.color,
           colorDescription: item.colorDescription || '',
           colorSpanish: item.colorSpanish || '',
