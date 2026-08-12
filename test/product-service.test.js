@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { ProductService } from '../src/service/ProductService.js';
 
 const rows = [
-  { CODBARRAS: '111', CODBARRAS2: '222', supplierRef: 'SUP-001', season: 'SPRING 2026', description: 'Producto base', spanishDescription: 'Pantalón para mujer', materialSpanish: '98% algodón, 2% elastano', price: 41700, ref: '0433-1608-437', style: '1608', color: '437', colorDescription: 'LIGHT VINTAGE', colorSpanish: 'AZUL', size: '2 REGULAR', stock: 4 },
+  { CODBARRAS: '111', CODBARRAS2: '222', supplierRef: 'SUP-001', season: 'SPRING 2026', description: 'Producto base', additionalDescription: 'Denim Shorts', materialSpanish: '98% algodón, 2% elastano', price: 41700, ref: '0433-1608-437', style: '1608', color: '437', colorDescription: 'LIGHT VINTAGE', colorSpanish: 'AZUL', size: '2 REGULAR', stock: 4 },
   { CODBARRAS: '333', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', colorDescription: 'LIGHT VINTAGE', colorSpanish: 'AZUL', size: '4 REGULAR', stock: 2 },
   { CODBARRAS: '666', description: 'Producto base', ref: '0433-1608-437', style: '1608', color: '437', colorDescription: 'LIGHT VINTAGE', colorSpanish: 'AZUL', size: '4 REGULAR', stock: 3 },
   { CODBARRAS: '555', description: 'Descripción distinta', ref: '0433-1608-100', style: '1608', color: '100', colorDescription: 'TRUE BLACK', colorSpanish: 'NEGRO', size: '2 REGULAR', stock: 2 },
@@ -38,7 +38,7 @@ test('busca por REFPROVEEDOR como string y mantiene la agrupación por referenci
 test('incluye los datos esenciales para atención al cliente y no expone costos', async () => {
   const result = await new ProductService(repo).getProductByQuery('111');
   assert.equal(result.price, 41700);
-  assert.equal(result.spanishDescription, 'Pantalón para mujer');
+  assert.equal(result.additionalDescription, 'Denim Shorts');
   assert.equal(result.material, '98% algodón, 2% elastano');
   assert.equal(result.colorDescription, 'LIGHT VINTAGE');
   assert.equal(result.colorSpanish, 'AZUL');
