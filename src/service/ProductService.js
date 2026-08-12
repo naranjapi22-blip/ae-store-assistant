@@ -51,6 +51,7 @@ export class ProductService {
       price: Number(row.price || 0),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
+      season: row.season || '',
       color: row.color,
       colorDescription: row.colorDescription || '',
       colorSpanish: row.colorSpanish || '',
