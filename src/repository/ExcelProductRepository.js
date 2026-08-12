@@ -2,6 +2,10 @@ import XLSX from 'xlsx';
 import { ProductRepository } from './ProductRepository.js';
 
 const clean = value => value == null ? '' : String(value).trim();
+const normalizePrice = value => {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? Math.round(number * 100) / 100 : 0;
+};
 const categoryKey = value => clean(value).toLocaleLowerCase();
 const hiddenCatalogDepartments = new Set(['muebles']);
 const productBase = (reference, style) => {
@@ -84,7 +88,7 @@ export class ExcelProductRepository extends ProductRepository {
       ref: clean(value(row, 'ref')),
       style: clean(value(row, 'style')),
       stock: Number(value(row, 'stock') ?? 0),
-      price: Number(value(row, 'price') ?? 0),
+      price: normalizePrice(value(row, 'price')),
       spanishDescription: clean(value(row, 'spanishDescription')),
       materialSpanish: clean(value(row, 'materialSpanish')),
       composition: clean(value(row, 'composition')),

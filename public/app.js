@@ -90,7 +90,7 @@ const selectFamily = async family => {
 
 const renderSearchResults = data => {
   const results = data.results || [];
-  result.innerHTML = `<section class="catalog-results"><div class="subsection-heading"><h2>Resultados</h2><span>${results.length}</span></div>${results.length ? `<div class="result-grid">${results.map(item => `<article class="result-card"><div class="result-image"><img src="${escapeHtml(item.image || `https://s7d2.scene7.com/is/image/aeo/${String(item.REFERENCIA_STYLO || item.ref || '').replaceAll('-', '_')}_f`)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="result-copy"><h3>${escapeHtml(item.description)}</h3><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO || item.ref)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock total: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-reference="${escapeHtml(item.REFERENCIA_STYLO || item.ref)}">Ver producto</button></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No se encontraron productos</h2><p>Prueba con otra descripción, color o referencia.</p></div>'}</section>`;
+  result.innerHTML = `<section class="catalog-results"><div class="subsection-heading"><h2>Resultados</h2><span>${results.length}</span></div>${results.length ? `<div class="result-grid">${results.map(item => `<article class="result-card"><div class="result-image"><img src="${escapeHtml(item.image || `https://s7d2.scene7.com/is/image/aeo/${String(item.REFERENCIA_STYLO || item.ref || '').replaceAll('-', '_')}_f`)}" alt="" loading="lazy"><span class="result-placeholder">AE</span></div><div class="result-copy"><h3>${escapeHtml(item.description)}</h3><p>${escapeHtml(item.colorDescription || item.colorSpanish || item.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(item.REFERENCIA_STYLO || item.ref)}</p><strong>${escapeHtml(formatPrice(item.price))}</strong><div class="result-footer"><span>Stock total: ${escapeHtml(item.stockTotal)}</span><span>${escapeHtml(item.sizesWithStock)} tallas</span></div><button class="secondary-button" type="button" data-reference="${escapeHtml(item.REFERENCIA_STYLO || item.ref)}">Ver producto</button></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No se encontraron productos</h2><p>Prueba con otro código, referencia o STYLE</p></div>'}</section>`;
   result.querySelectorAll('.result-image img').forEach(img => img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.classList.add('is-visible'); }));
   result.querySelectorAll('[data-reference]').forEach(button => button.addEventListener('click', () => loadReference(button.dataset.reference)));
 };
@@ -133,9 +133,11 @@ const setMode = mode => {
 modeButtons.forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
 
 const renderProduct = data => {
+  const sizesData = Array.isArray(data.sizes) ? data.sizes : [];
+  const relatedColors = Array.isArray(data.relatedColors) ? data.relatedColors : [];
   const scannedSize = escapeHtml(data.scannedSize);
   const scannedStatus = stockStatus(data.stock);
-  const relatedColorCount = data.relatedColors?.length ?? 0;
+  const relatedColorCount = relatedColors.length;
   const relatedColorLabel = relatedColorCount === 0 ? 'Sin otros colores' : relatedColorCount === 1 ? '1 color alternativo' : `${relatedColorCount} colores alternativos`;
   const colorName = data.colorDescription || data.colorSpanish || data.color || 'No disponible';
   const secondaryColor = data.colorSpanish && data.colorSpanish !== colorName ? data.colorSpanish : '';
@@ -147,11 +149,11 @@ const renderProduct = data => {
     : '';
   const quickSummary = `<section class="quick-summary ${scannedStatus.className}" aria-label="Consulta rápida"><div class="quick-summary-item"><span class="label">Talla consultada</span><strong>${scannedSize}</strong></div><div class="quick-summary-item"><span class="label">Stock exacto</span><strong>${escapeHtml(data.stock)} <small>unidades</small></strong></div><div class="quick-summary-item"><span class="label">Colores alternativos</span><strong>${escapeHtml(relatedColorLabel)}</strong></div><span class="quick-status">${escapeHtml(scannedStatus.label)}</span></section>`;
   const operationalDetails = `${quickSummary}<div class="operational-details"><div><span class="label">Temporada</span><strong>${escapeHtml(data.season || 'No disponible')}</strong></div><div><span class="label">Referencia</span><strong>${escapeHtml(data.REFERENCIA_STYLO || 'No disponible')}</strong></div><div><span class="label">Style</span><strong>${escapeHtml(data.STYLE || 'No disponible')}</strong></div></div>`;
-  const sizes = sortedSizes(data.sizes).map(item => {
+  const sizes = sortedSizes(sizesData).map(item => {
     const status = stockStatus(item.stock);
     return `<div class="size-card ${item.size === data.scannedSize ? 'is-scanned' : ''} ${status.className}"><span class="size-name">${escapeHtml(item.size)}</span><span class="size-status">${escapeHtml(status.label)}</span><span class="size-stock">${escapeHtml(item.stock)} unidades</span></div>`;
   }).join('');
-  const colors = data.relatedColors.length ? `<section class="colors-section"><div class="subsection-heading"><h3>Otros colores disponibles</h3><span>${data.relatedColors.length}</span></div><div class="color-list">${data.relatedColors.map(variant => {
+  const colors = relatedColors.length ? `<section class="colors-section"><div class="subsection-heading"><h3>Otros colores disponibles</h3><span>${relatedColors.length}</span></div><div class="color-list">${relatedColors.map(variant => {
     const name = variant.colorDescription || variant.colorSpanish || variant.color;
     const secondary = variant.colorSpanish && variant.colorSpanish !== name ? `<small>${escapeHtml(variant.colorSpanish)}</small>` : '';
     const thumb = variant.image
@@ -160,7 +162,7 @@ const renderProduct = data => {
     return `<button class="color-chip" type="button" data-reference="${escapeHtml(variant.reference)}">${thumb}<span class="color-chip-copy"><strong>${escapeHtml(name)}</strong>${secondary}</span></button>`;
   }).join('')}</div></section>` : '';
 
-  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${additionalDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${data.sizes.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}<div id="similar-products" hidden></div></article>`;
+  result.innerHTML = `<article class="product-card"><div class="product-image-panel"><div class="image-frame"><img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}" /><div class="image-placeholder" hidden><span class="placeholder-mark">AE</span><span>Imagen no disponible</span></div></div><span class="image-caption">Vista del producto</span></div><div class="product-details"><div class="product-title"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2>${additionalDescription}</div><div class="customer-summary"><div class="price-block"><span class="label">Precio</span><strong>${escapeHtml(formatPrice(data.price))}</strong></div><div class="color-block"><span class="label">Color</span><strong>${escapeHtml(colorName)}</strong>${secondaryColor ? `<small>${escapeHtml(secondaryColor)}</small>` : ''}</div></div>${operationalDetails}${material}</div><section class="sizes-section"><div class="subsection-heading"><h3>Disponibilidad de tallas</h3><span>${sizesData.length} tallas</span></div><div class="size-grid">${sizes}</div></section>${colors}<div id="similar-products" hidden></div></article>`;
 
   const image = result.querySelector('.image-frame img');
   const placeholder = result.querySelector('.image-placeholder');
@@ -185,7 +187,7 @@ const loadReference = async reference => {
   finally { setLoading(false); focusScanner(); }
 };
 
-clearButton.addEventListener('click', () => { input.value = ''; clearButton.hidden = true; result.innerHTML = ''; setMessage('Listo para escanear'); focusScanner(); });
+clearButton.addEventListener('click', () => { input.value = ''; clearButton.hidden = true; result.innerHTML = ''; setMessage('Listo para consultar'); focusScanner(); });
 input.addEventListener('input', () => { clearButton.hidden = !input.value; });
 
 form.addEventListener('submit', async event => {
