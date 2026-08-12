@@ -97,7 +97,7 @@ const setCatalogMode = mode => {
   form.hidden = exploring;
   catalogExplorer.hidden = !exploring;
   if (exploring) { result.innerHTML = ''; loadDepartments(); }
-  else { input.placeholder = 'Ej. skinny black'; focusScanner(); }
+  else { input.placeholder = 'Ej. 0703-2143-073, 444167765 o 2143'; focusScanner(); }
 };
 
 const renderSearchResults = data => {
@@ -131,8 +131,8 @@ const loadSimilarProducts = async reference => {
 const setMode = mode => {
   searchMode = mode;
   modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
-  document.querySelector('#search-title').textContent = mode === 'exact' ? 'Escanea un código de barras' : 'Busca por descripción, color o referencia';
-  input.placeholder = mode === 'exact' ? 'Escanee o ingrese código / referencia' : 'Ej. skinny black';
+  document.querySelector('#search-title').textContent = mode === 'exact' ? 'Escanea un código de barras' : 'Busca por referencia, código de barras o STYLE';
+  input.placeholder = mode === 'exact' ? 'Escanee o ingrese código / referencia' : 'Ej. 0703-2143-073, 444167765 o 2143';
   form.querySelector('.primary-button').textContent = mode === 'exact' ? 'Consultar' : 'Buscar';
   catalogTools.hidden = mode !== 'catalog';
   if (mode === 'catalog') setCatalogMode(catalogMode);

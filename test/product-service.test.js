@@ -80,7 +80,7 @@ test('searchProducts agrupa por referencia, suma stock y limita resultados', asy
   const searchRepo = {
     searchProducts: async (_text, limit) => [{ ref: '0433-1608-437', style: '1608', description: 'Skinny', stockTotal: 51, sizesWithStock: 13, price: 100 }].slice(0, limit)
   };
-  const results = await new ProductService(searchRepo).searchProducts('skinny black', 20);
+  const results = await new ProductService(searchRepo).searchProducts('0433-1608-437', 20);
   assert.equal(results.length, 1); assert.equal(results[0].REFERENCIA_STYLO, '0433-1608-437'); assert.equal(results[0].stockTotal, 51); assert.equal(results[0].sizesWithStock, 13);
 });
 

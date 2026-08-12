@@ -6,7 +6,7 @@ const service = {
   getProductByBarcode: async query => query === '400281669321' ? { REFERENCIA_STYLO: '0433-1608-437', season: 'SPRING 2026' } : null,
   getProductByQuery: async query => query === '28166932' ? { REFERENCIA_STYLO: '0433-1608-437', season: 'SPRING 2026' } : null,
   getProductByReference: async reference => reference === '1177-1541-100' ? { REFERENCIA_STYLO: reference, relatedColors: [] } : null
-  ,searchProducts: async (query, limit) => query === 'skinny black' ? [{ REFERENCIA_STYLO: '0433-1608-437', stockTotal: 51, sizesWithStock: 13 }].slice(0, limit) : []
+  ,searchProducts: async (query, limit) => query === '0433-1608-437' ? [{ REFERENCIA_STYLO: '0433-1608-437', stockTotal: 51, sizesWithStock: 13 }].slice(0, limit) : []
   ,getDepartments: async () => ['MEN', 'WOMEN'],
   getSections: async department => department === 'MEN' ? ['MENS JEANS'] : [],
   getFamilies: async (department, section) => department === 'MEN' && section === 'MENS JEANS' ? ['SKINNY'] : [],
@@ -40,7 +40,7 @@ test('endpoint por reference inexistente devuelve 404', async () => {
 });
 
 test('endpoint de búsqueda devuelve resultados de catálogo', async () => {
-  const res = response(); await productApi(service)(request('/api/products/search?q=skinny%20black'), res);
+  const res = response(); await productApi(service)(request('/api/products/search?q=0433-1608-437'), res);
   assert.equal(res.state.status, 200); assert.equal(JSON.parse(res.state.body).results[0].REFERENCIA_STYLO, '0433-1608-437');
 });
 

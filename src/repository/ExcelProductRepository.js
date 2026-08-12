@@ -95,14 +95,13 @@ export class ExcelProductRepository extends ProductRepository {
   async findByStyle(style) { return this.rows.filter(row => row.style === clean(style)); }
 
   async searchProducts(text, limit = 20) {
-    const words = clean(text).toLocaleLowerCase().split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
+    const query = clean(text);
+    if (!query) return [];
     const maxResults = Math.min(Math.max(Number(limit) || 20, 1), 20);
-    const matches = this.rows.filter(row => {
-      const searchable = [row.description, row.additionalDescription, row.colorDescription, row.colorSpanish, row.style, row.ref, row.reference, row.articleCode]
-        .join(' ').toLocaleLowerCase();
-      return words.every(word => searchable.includes(word));
-    });
+    const identifierMatch = row => [row.ref, row.CODBARRAS, row.CODBARRAS2, row.reference, row.articleCode, row.style]
+      .some(value => clean(value) === query);
+    const matchedReferences = new Set(this.rows.filter(identifierMatch).map(row => row.ref).filter(Boolean));
+    const matches = this.rows.filter(row => matchedReferences.has(row.ref));
     const groups = new Map();
     for (const row of matches) {
       if (!row.ref) continue;
