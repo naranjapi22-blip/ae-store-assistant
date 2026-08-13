@@ -3,7 +3,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
-import { ExcelProductRepository } from './repository/ExcelProductRepository.js';
+import { createProductRepository } from './repository/createProductRepository.js';
 import { ProductService } from './service/ProductService.js';
 import { productApi } from './api/productApi.js';
 
@@ -18,11 +18,11 @@ const inventoryPath = inventoryCandidates
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file))
   .find(existsSync);
 
-if (!inventoryPath) {
+if (!inventoryPath && String(process.env.DATA_SOURCE || 'excel').trim().toLowerCase() !== 'sqlserver') {
   throw new Error(`No se encontró el archivo de inventario. Probados: ${inventoryCandidates.join(', ')}`);
 }
 
-const repository = new ExcelProductRepository(inventoryPath);
+const repository = createProductRepository({ projectRoot, inventoryPath });
 const api = productApi(new ProductService(repository));
 const server = http.createServer(async (request, response) => {
   if (request.url.startsWith('/api/')) return api(request, response);
@@ -36,4 +36,4 @@ const server = http.createServer(async (request, response) => {
   }
   catch { response.writeHead(404); response.end(); }
 });
-server.listen(process.env.PORT || 3000, () => console.log(`AE Store Assistant usando ${path.basename(inventoryPath)} en http://localhost:3000`));
+server.listen(process.env.PORT || 3000, () => console.log(`AE Store Assistant usando ${process.env.DATA_SOURCE || 'excel'} en http://localhost:3000`));

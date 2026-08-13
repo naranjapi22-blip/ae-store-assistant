@@ -1,5 +1,8 @@
 export class ProductRepository {
   async findByBarcode(_barcode) { throw new Error('Not implemented'); }
+  async findByQuery(_query) { throw new Error('Not implemented'); }
+  async findByReference(_reference) { throw new Error('Not implemented'); }
+  async findByStyle(_style) { throw new Error('Not implemented'); }
   async searchProducts(_text, _limit = 20) { throw new Error('Not implemented'); }
   async getDepartments() { throw new Error('Not implemented'); }
   async getSections(_department) { throw new Error('Not implemented'); }

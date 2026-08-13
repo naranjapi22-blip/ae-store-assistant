@@ -14,9 +14,13 @@ const catalogSelection = { department: '', section: '', family: '' };
 const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = `message ${type}`; };
 const setLoading = loading => { form.classList.toggle('is-loading', loading); form.querySelector('.primary-button').disabled = loading; };
-const formatPrice = value => Number(value) > 0
-  ? new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(Number(value))
-  : 'No disponible';
+const formatPrice = value => {
+  if (value == null) return 'Precio no disponible';
+  const number = Number(value);
+  return Number.isFinite(number)
+    ? new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 }).format(number)
+    : 'Precio no disponible';
+};
 
 const stockStatus = value => {
   const stock = Number(value) || 0;

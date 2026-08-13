@@ -1,4 +1,9 @@
 const clean = value => value == null ? '' : String(value).trim();
+const priceOrNull = value => {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
 const familyFromReference = reference => {
   const parts = clean(reference).split('-');
   return parts.length === 3 && parts.every(Boolean) ? parts[0] : null;
@@ -64,7 +69,7 @@ export class ProductService {
       color: row.color,
       colorDescription: row.colorDescription || '',
       colorSpanish: row.colorSpanish || '',
-      price: Number(row.price || 0),
+      price: priceOrNull(row.price),
       season: row.season || '',
       stockTotal: row.stockTotal,
       sizesWithStock: row.sizesWithStock
@@ -104,7 +109,7 @@ export class ProductService {
       color: row.color,
       colorDescription: row.colorDescription || '',
       colorSpanish: row.colorSpanish || '',
-      price: Number(row.price || 0),
+      price: priceOrNull(row.price),
       season: row.season || '',
       stockTotal: row.stockTotal,
       sizesWithStock: row.sizesWithStock
@@ -153,7 +158,7 @@ export class ProductService {
       description: row.description,
       additionalDescription: row.additionalDescription || '',
       material: row.materialSpanish || row.composition || '',
-      price: Number(row.price || 0),
+      price: priceOrNull(row.price),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
       barcode: row.CODBARRAS || row.CODBARRAS2 || '',
