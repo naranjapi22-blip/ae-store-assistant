@@ -7,7 +7,7 @@ import { createProductRepository } from './repository/createProductRepository.js
 import { ProductService } from './service/ProductService.js';
 import { productApi } from './api/productApi.js';
 import { loadEnvironment, configFromEnv, envFromConfig, isConnectionConfig, isUsableConfig, publicConfig } from './config/environment.js';
-import { SqlServerWarehouseRepository, testSqlConnection } from './repository/SqlServerWarehouseRepository.js';
+import { SqlServerWarehouseRepository, testSqlConnection, testSqlConnectionHealth } from './repository/SqlServerWarehouseRepository.js';
 import { WarehouseService } from './service/WarehouseService.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -78,6 +78,7 @@ export const createApplicationServer = ({
   configStore = null,
   requireWarehouse = false,
   testConnection = testSqlConnection,
+  checkConnection = testSqlConnectionHealth,
   projectRoot: configuredProjectRoot = projectRoot
 } = {}) => {
   let runtimeEnv = initialConfig ? { ...env, ...envFromConfig(initialConfig) } : { ...env };
@@ -127,6 +128,21 @@ export const createApplicationServer = ({
     if (pathname === '/api/config/status' && request.method === 'GET') {
       response.writeHead(200, jsonHeaders);
       return response.end(JSON.stringify({ ...currentConfig(), connection: service ? 'ready' : 'not_configured' }));
+    }
+    if (pathname === '/api/config/health' && request.method === 'GET') {
+      const config = configFromEnv(runtimeEnv);
+      if (!isUsableConfig(config)) {
+        response.writeHead(200, jsonHeaders);
+        return response.end(JSON.stringify({ connection: 'not_configured' }));
+      }
+      try {
+        const result = await checkConnection(config);
+        response.writeHead(200, jsonHeaders);
+        return response.end(JSON.stringify({ connection: 'ready', databaseName: result.databaseName }));
+      } catch (error) {
+        response.writeHead(502, jsonHeaders);
+        return response.end(JSON.stringify({ connection: 'error', error: connectionErrorMessage(error) }));
+      }
     }
     if (pathname === '/api/warehouses' && request.method === 'GET') {
       try {

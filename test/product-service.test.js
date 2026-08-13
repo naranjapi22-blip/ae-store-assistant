@@ -17,8 +17,11 @@ const rows = [
 const repo = {
   findByBarcode: async code => rows.find(row => row.CODBARRAS === code || row.CODBARRAS2 === code) ?? null,
   findByQuery: async query => rows.find(row => row.CODBARRAS === query || row.CODBARRAS2 === query || row.supplierRef === query) ?? null,
+  findBySupplierRef: async supplierRef => rows.filter(row => row.supplierRef === supplierRef),
+  findByArticleCode: async articleCode => rows.filter(row => Number(row.articleCode) === Number(articleCode)),
   findByReference: async ref => rows.filter(row => row.ref === ref),
-  findByStyle: async style => rows.filter(row => row.style === style)
+  findByStyle: async style => rows.filter(row => row.style === style),
+  searchProductsByStyle: async style => rows.filter(row => row.style === style).map(row => ({ ref: row.ref, style: row.style, description: row.description, stockTotal: row.stock, sizesWithStock: row.stock > 0 ? 1 : 0 }))
 };
 
 const product = barcode => new ProductService(repo).getProductByBarcode(barcode);
@@ -37,22 +40,26 @@ test('busca por REFPROVEEDOR como string y mantiene la agrupación por referenci
   assert.deepEqual(result.sizes.map(({ size, stock }) => ({ size, stock })), [{ size: '2 REGULAR', stock: 4 }, { size: '4 REGULAR', stock: 5 }]);
 });
 
-test('resuelve un STYLE con una sola referencia directamente', async () => {
+test('resuelve un STYLE con una sola referencia como lista agrupada', async () => {
   const service = new ProductService({
-    findByQuery: async () => null,
+    findByBarcode: async () => null,
+    findByReference: async () => [],
+    findBySupplierRef: async () => [],
     findByStyle: async () => [rows[0], rows[1], rows[2]],
-    findByReference: async ref => rows.filter(row => row.ref === ref)
+    searchProductsByStyle: async () => [{ ref: '0433-1608-437', style: '1608', description: 'Producto base', stockTotal: 9, sizesWithStock: 2 }]
   });
   const result = await service.resolveProductQuery('1608');
-  assert.equal(result.product.REFERENCIA_STYLO, '0433-1608-437');
-  assert.equal(result.results, undefined);
+  assert.equal(result.product, undefined);
+  assert.deepEqual(result.results.map(item => item.REFERENCIA_STYLO), ['0433-1608-437']);
 });
 
 test('resuelve un STYLE con varias referencias como lista agrupada', async () => {
   const service = new ProductService({
-    findByQuery: async () => null,
+    findByBarcode: async () => null,
+    findByReference: async () => [],
+    findBySupplierRef: async () => [],
     findByStyle: async () => rows.filter(row => row.style === '1608'),
-    searchProducts: async (_query, limit) => [
+    searchProductsByStyle: async (_query, limit) => [
       { ref: '0433-1608-437', style: '1608', description: 'Producto base', stockTotal: 9, sizesWithStock: 2 },
       { ref: '9999-1608-999', style: '1608', description: 'Otra familia', stockTotal: 1, sizesWithStock: 1 }
     ].slice(0, limit)
@@ -60,6 +67,44 @@ test('resuelve un STYLE con varias referencias como lista agrupada', async () =>
   const result = await service.resolveProductQuery('1608');
   assert.equal(result.product, undefined);
   assert.deepEqual(result.results.map(item => item.REFERENCIA_STYLO), ['0433-1608-437', '9999-1608-999']);
+});
+
+test('STYLE exacto gana una colisión numérica con CODARTICULO y no mezcla estilos', async () => {
+  const service = new ProductService({
+    findByBarcode: async () => null,
+    findByReference: async () => [],
+    findBySupplierRef: async () => [],
+    findByStyle: async style => style === '9153' ? [{ ref: '0395-9153-400', style: '9153', stock: 2 }] : [],
+    findByArticleCode: async () => [{ ref: '0131-6287-329', style: '6287', stock: 0 }],
+    searchProductsByStyle: async () => [
+      { ref: '0395-9153-400', style: '9153', stockTotal: 14 },
+      { ref: '1165-9153-006', style: '9153', stockTotal: 6 }
+    ]
+  });
+  const result = await service.resolveProductQuery('9153');
+  assert.deepEqual(result.results.map(item => item.STYLE), ['9153', '9153']);
+  assert.equal(result.product, undefined);
+});
+
+test('resolución exacta conserva barcode, referencia, REFPROVEEDOR y CODARTICULO', async () => {
+  const exactRows = {
+    barcode: { ref: 'BARCODE', style: 'B' },
+    reference: { ref: 'REFERENCE', style: 'R' },
+    supplier: { ref: 'SUPPLIER', style: 'S' },
+    article: { ref: 'ARTICLE', style: 'A' }
+  };
+  const service = new ProductService({
+    findByBarcode: async value => value === '111' ? exactRows.barcode : null,
+    findByReference: async value => value === 'REF-1' ? [exactRows.reference] : [],
+    findBySupplierRef: async value => value === 'SUP-1' ? [exactRows.supplier] : [],
+    findByStyle: async () => [],
+    findByArticleCode: async value => value === 42 ? [exactRows.article] : [],
+    findByQuery: async () => { throw new Error('findByQuery no debe resolver tipos exactos'); }
+  });
+  assert.equal((await service.resolveProductQuery('111')).product.STYLE, 'B');
+  assert.equal((await service.resolveProductQuery('REF-1')).product.STYLE, 'R');
+  assert.equal((await service.resolveProductQuery('SUP-1')).product.STYLE, 'S');
+  assert.equal((await service.resolveProductQuery('42')).product.STYLE, 'A');
 });
 
 test('incluye los datos esenciales para atención al cliente y no expone costos', async () => {

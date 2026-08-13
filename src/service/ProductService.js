@@ -25,30 +25,54 @@ export class ProductService {
   }
 
   async getProductByQuery(query) {
-    const row = this.repository.findByQuery
-      ? await this.repository.findByQuery(clean(query))
-      : await this.repository.findByBarcode(clean(query));
-    return this.getProduct(row);
+    const resolution = await this.resolveProductQuery(query);
+    return resolution?.product ?? null;
+  }
+
+  async findExactVariant(query) {
+    const value = clean(query);
+    const barcode = this.repository.findByBarcode
+      ? await this.repository.findByBarcode(value)
+      : null;
+    if (barcode) return barcode;
+
+    const references = this.repository.findByReference
+      ? await this.repository.findByReference(value)
+      : [];
+    if (references.length) return references[0];
+
+    const suppliers = this.repository.findBySupplierRef
+      ? await this.repository.findBySupplierRef(value)
+      : this.repository.findByQuery ? [await this.repository.findByQuery(value)].filter(Boolean) : [];
+    if (suppliers.length) return suppliers[0];
+
+    return null;
+  }
+
+  async searchProductsByStyle(style, limit = 20) {
+    const rows = this.repository.searchProductsByStyle
+      ? await this.repository.searchProductsByStyle(style, limit)
+      : await this.repository.searchProducts(style, limit);
+    return rows.map(row => this.toSearchSummary(row));
   }
 
   async resolveProductQuery(query) {
     const value = clean(query);
     if (!value) return null;
 
-    const exact = await this.getProductByQuery(value);
-    if (exact) return { product: exact };
+    const exact = await this.findExactVariant(value);
+    if (exact) return { product: await this.getProduct(exact) };
 
     if (!this.repository.findByStyle) return null;
     const styleRows = await this.repository.findByStyle(value);
-    const stockTotals = stockTotalByReference(styleRows);
-    const references = [...new Set(styleRows
-      .filter(row => (stockTotals.get(row.ref) ?? 0) > 0)
-      .map(row => row.ref)
-      .filter(Boolean))];
-    if (!references.length) return null;
-    if (references.length === 1) return { product: await this.getProduct(styleRows.find(row => row.ref === references[0])) };
+    if (styleRows.length) return { results: await this.searchProductsByStyle(value, 20) };
 
-    return { results: await this.searchProducts(value, 20) };
+    if (/^\d+$/.test(value) && this.repository.findByArticleCode) {
+      const articles = await this.repository.findByArticleCode(Number(value));
+      if (articles.length) return { product: await this.getProduct(articles[0]) };
+    }
+
+    return null;
   }
 
   async getProductByReference(reference) {
@@ -60,7 +84,11 @@ export class ProductService {
     const value = clean(text);
     if (value.length < 2) return [];
     const rows = await this.repository.searchProducts(value, Math.min(limit, 20));
-    return rows.map(row => ({
+    return rows.map(row => this.toSearchSummary(row));
+  }
+
+  toSearchSummary(row) {
+    return {
       image: imageFromReference(row.ref),
       REFERENCIA_STYLO: row.ref,
       STYLE: row.style,
@@ -73,7 +101,7 @@ export class ProductService {
       season: row.season || '',
       stockTotal: row.stockTotal,
       sizesWithStock: row.sizesWithStock
-    }));
+    };
   }
 
   async getDepartments() { return this.repository.getDepartments(); }

@@ -45,17 +45,7 @@ export class SqlServerWarehouseRepository {
 }
 
 export const testSqlConnection = async (config, { warehouseRepositoryFactory = options => new SqlServerWarehouseRepository(options) } = {}) => {
-  const env = {
-    DB_SERVER: config.server,
-    DB_PORT: String(config.port),
-    DB_DATABASE: config.database,
-    DB_USER: config.user,
-    DB_PASSWORD: config.password,
-    DB_ENCRYPT: String(config.encrypt),
-    DB_TRUST_SERVER_CERTIFICATE: String(config.trustServerCertificate),
-    DB_REQUEST_TIMEOUT_MS: String(config.requestTimeoutMs || 3000),
-    DB_CONNECTION_TIMEOUT_MS: String(config.connectionTimeoutMs || 3000)
-  };
+  const env = connectionEnvFromConfig(config);
   const pool = new sql.ConnectionPool(sqlConfigFromEnv(env));
   let warehouseRepository;
   try {
@@ -69,5 +59,31 @@ export const testSqlConnection = async (config, { warehouseRepositoryFactory = o
   } finally {
     if (warehouseRepository && warehouseRepository.pool !== pool) await warehouseRepository.close();
     else if (pool.close) await pool.close();
+  }
+};
+
+const connectionEnvFromConfig = config => ({
+    DB_SERVER: config.server,
+    DB_PORT: String(config.port),
+    DB_DATABASE: config.database,
+    DB_USER: config.user,
+    DB_PASSWORD: config.password,
+    DB_ENCRYPT: String(config.encrypt),
+    DB_TRUST_SERVER_CERTIFICATE: String(config.trustServerCertificate),
+    DB_REQUEST_TIMEOUT_MS: String(config.requestTimeoutMs || 3000),
+    DB_CONNECTION_TIMEOUT_MS: String(config.connectionTimeoutMs || 3000)
+  });
+
+export const testSqlConnectionHealth = async config => {
+  const env = connectionEnvFromConfig(config);
+  const pool = new sql.ConnectionPool(sqlConfigFromEnv(env));
+  try {
+    await pool.connect();
+    const request = pool.request();
+    request.timeout = config.requestTimeoutMs || 3000;
+    const result = await request.query('SELECT DB_NAME() AS databaseName, 1 AS canSelect');
+    return { databaseName: result.recordset?.[0]?.databaseName || config.database, canSelect: true };
+  } finally {
+    if (pool.close) await pool.close();
   }
 };

@@ -190,15 +190,31 @@ openSettings.addEventListener('click', () => showConfiguration());
 cancelSettings.addEventListener('click', hideConfiguration);
 
 const initializeConfiguration = async () => {
+  let config;
   try {
     const response = await fetch('/api/config/status');
-    const config = await response.json();
-    activeConfiguration = config;
-    updateStoreLabel(config);
-    if (!config.configured) showConfiguration(config);
+    config = await response.json();
   } catch {
+    setConnectionState('idle');
     showConfiguration();
     setConfigurationMessage('No se pudo cargar la configuración local.', 'is-error');
+    return;
+  }
+  activeConfiguration = config;
+  updateStoreLabel(config);
+  if (!config.configured) {
+    setConnectionState('idle');
+    showConfiguration(config);
+    return;
+  }
+  setConnectionState('idle');
+  try {
+    const healthResponse = await fetch('/api/config/health');
+    const health = await healthResponse.json();
+    if (!healthResponse.ok || health.connection !== 'ready') throw new Error(health.error || 'No se pudo validar la conexión');
+    setConnectionState('connected');
+  } catch {
+    setConnectionState('error');
   }
 };
 

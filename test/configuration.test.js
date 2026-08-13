@@ -33,6 +33,67 @@ test('configuración incompleta se considera no válida', () => {
   assert.equal(isUsableConfig({ server: 'localhost', database: 'db', warehouseCode: 'V08' }), false);
 });
 
+test('health check automÃ¡tico devuelve ready sin exponer credenciales', async t => {
+  let checked;
+  const application = await startServer({
+    env: { DATA_SOURCE: 'sqlserver' },
+    initialConfig: {
+      server: 'db-host', port: 1433, database: 'AEStore', user: 'reader', password: 'synthetic-test-password',
+      warehouseCode: 'V08', warehouseName: 'VENTAS ESCAZU CRI', encrypt: false, trustServerCertificate: true
+    },
+    requireWarehouse: true,
+    port: 0,
+    checkConnection: async config => { checked = config; return { databaseName: 'AEStore', canSelect: true }; }
+  });
+  t.after(() => application.close());
+  const address = application.server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/config/health`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.connection, 'ready');
+  assert.equal(body.databaseName, 'AEStore');
+  assert.equal(body.password, undefined);
+  assert.equal(checked.password, 'synthetic-test-password');
+});
+
+test('health check automÃ¡tico devuelve error sanitizado sin cambiar configuraciÃ³n', async t => {
+  const application = await startServer({
+    env: { DATA_SOURCE: 'sqlserver' },
+    initialConfig: {
+      server: 'db-host', port: 1433, database: 'AEStore', user: 'reader', password: 'synthetic-test-password',
+      warehouseCode: 'V11', warehouseName: 'VENTAS CITY MALL CRI', encrypt: false, trustServerCertificate: true
+    },
+    requireWarehouse: true,
+    port: 0,
+    checkConnection: async () => { throw Object.assign(new Error('password=secret; stack hidden'), { code: 'ELOGIN' }); }
+  });
+  t.after(() => application.close());
+  const address = application.server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/config/health`);
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(body.connection, 'error');
+  assert.equal(body.error, 'Credenciales incorrectas');
+  assert.doesNotMatch(JSON.stringify(body), /secret|stack|password/i);
+});
+
+test('sin configuraciÃ³n el health check no intenta conectar y permanece not_configured', async t => {
+  let checked = false;
+  const application = await startServer({
+    env: { DATA_SOURCE: 'sqlserver' },
+    requireWarehouse: true,
+    port: 0,
+    checkConnection: async () => { checked = true; return { databaseName: 'unexpected' }; }
+  });
+  t.after(() => application.close());
+  const address = application.server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/config/health`);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.connection, 'not_configured');
+  assert.equal(checked, false);
+});
+
 test('testConnection acepta conexión completa sin almacén', async t => {
   let testedConfig;
   const application = await startServer({

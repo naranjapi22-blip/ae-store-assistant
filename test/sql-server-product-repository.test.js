@@ -607,6 +607,28 @@ test('STYLE y búsquedas de catálogo usan igualdad exacta sin LIKE', async () =
   assertReadOnly(call.text);
 });
 
+test('búsqueda agrupada por STYLE usa solo STYLE exacto', async () => {
+  const pool = mockPool([{ ref: '0395-9153-400', style: '9153', stockTotal: 14, sizesWithStock: 3, price: 36800 }]);
+  const repository = new SqlServerProductRepository({ pool });
+  const result = await repository.searchProductsByStyle('9153', 20);
+  assert.equal(result[0].style, '9153');
+  assert.match(pool.calls[0].text, /CL\.STYLE\s*=\s*@style/);
+  assert.doesNotMatch(pool.calls[0].text, /LIKE\s+/i);
+  assert.doesNotMatch(pool.calls[0].text, /TRY_CONVERT/i);
+  assert.equal(pool.calls[0].params.style, '9153');
+  assertReadOnly(pool.calls[0].text);
+});
+
+test('findByQuery no mezcla STYLE ni usa conversión numérica implícita', async () => {
+  const pool = mockPool([knownRow()]);
+  const repository = new SqlServerProductRepository({ pool });
+  await repository.findByQuery('28166932');
+  assert.doesNotMatch(pool.calls[0].text, /CL\.STYLE\s*=\s*@query/);
+  assert.doesNotMatch(pool.calls[0].text, /TRY_CONVERT/i);
+  assert.match(pool.calls[0].text, /A\.REFPROVEEDOR\s*=\s*@query/);
+  assertReadOnly(pool.calls[0].text);
+});
+
 test('categorías, productos y similares son consultas parametrizadas de solo lectura', async () => {
   const pool = mockPool(
     [{ value: 'WOMEN' }],

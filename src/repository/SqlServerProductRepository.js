@@ -588,22 +588,32 @@ export class SqlServerProductRepository extends ProductRepository {
   }
 
   async findByQuery(query) {
-    // Rendimiento: findByQuery y searchProducts combinan en OR
-    // CODBARRAS/CODBARRAS2/CODBARRAS3/REFPROVEEDOR/REFERENCIA_STYLO/STYLE/
-    // CODARTICULO. REFERENCIA_STYLO y STYLE no tienen índice confirmado; sin
-    // un plan real no se rediseña todavía porque este OR puede dificultar
-    // index seeks y requerir rutas separadas.
+    const value = clean(query);
     const rows = await this.query(variantQuery(`
         L.CODBARRAS = @query
         OR L.CODBARRAS2 = @query
         OR L.CODBARRAS3 = @query
         OR A.REFPROVEEDOR = @query
-        OR CL.REFERENCIA_STYLO = @query
-        OR CL.STYLE = @query
-        OR A.CODARTICULO = TRY_CONVERT(INT, @query)`), this.commonParams({
-      query: { type: sql.NVarChar(255), value: clean(query) }
+        OR CL.REFERENCIA_STYLO = @query`), this.commonParams({
+      query: { type: sql.NVarChar(255), value }
     }));
     return rows.length ? mapVariant(rows[0]) : null;
+  }
+
+  async findBySupplierRef(supplierRef) {
+    const rows = await this.query(variantQuery('A.REFPROVEEDOR = @supplierRef'), this.commonParams({
+      supplierRef: { type: sql.NVarChar(255), value: clean(supplierRef) }
+    }));
+    return rows;
+  }
+
+  async findByArticleCode(articleCode) {
+    const value = Number(articleCode);
+    if (!Number.isInteger(value)) return [];
+    const rows = await this.query(variantQuery('A.CODARTICULO = @articleCode'), this.commonParams({
+      articleCode: { type: sql.Int, value }
+    }));
+    return rows;
   }
 
   async findByReference(reference) {
@@ -622,6 +632,8 @@ export class SqlServerProductRepository extends ProductRepository {
 
   async searchProducts(text, limit = 20) {
     const maxResults = maxLimit(limit, 20);
+    const value = clean(text);
+    const parsedArticleCode = /^\d+$/.test(value) ? Number(value) : null;
     const matched = `
         L.CODBARRAS = @query
         OR L.CODBARRAS2 = @query
@@ -629,10 +641,20 @@ export class SqlServerProductRepository extends ProductRepository {
         OR A.REFPROVEEDOR = @query
         OR CL.REFERENCIA_STYLO = @query
         OR CL.STYLE = @query
-        OR A.CODARTICULO = TRY_CONVERT(INT, @query)`;
+        OR (@articleCode IS NOT NULL AND A.CODARTICULO = @articleCode)`;
     const query = `${MATCHED_REFERENCES_CTE(matched)}${summarySelect}`;
     const rows = await this.query(query, this.commonParams({
-      query: { type: sql.NVarChar(255), value: clean(text) },
+      query: { type: sql.NVarChar(255), value },
+      articleCode: { type: sql.Int, value: parsedArticleCode },
+      limit: { type: sql.Int, value: maxResults }
+    }));
+    return rows.map(mapSummary);
+  }
+
+  async searchProductsByStyle(style, limit = 20) {
+    const maxResults = maxLimit(limit, 20);
+    const rows = await this.query(`${MATCHED_REFERENCES_CTE('CL.STYLE = @style')}${summarySelect}`, this.commonParams({
+      style: { type: sql.NVarChar(255), value: clean(style) },
       limit: { type: sql.Int, value: maxResults }
     }));
     return rows.map(mapSummary);

@@ -50,3 +50,18 @@ test('el indicador empieza gris y solo usa verde tras conexión correcta', async
   assert.ok(app.indexOf("setConnectionState('idle');\ninitializeConfiguration();") >= 0);
   assert.ok(app.indexOf("setConnectionState('connected')") > app.indexOf("configurationRequest('/api/config/test', payload)"));
 });
+
+test('Electron valida automÃ¡ticamente la configuraciÃ³n guardada al iniciar', async () => {
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const server = await readFile(new URL('../src/server.js', import.meta.url), 'utf8');
+  const warehouse = await readFile(new URL('../src/repository/SqlServerWarehouseRepository.js', import.meta.url), 'utf8');
+  assert.match(app, /\/api\/config\/health/);
+  assert.match(app, /setConnectionState\('idle'\)/);
+  assert.match(app, /setConnectionState\('connected'\)/);
+  assert.match(app, /setConnectionState\('error'\)/);
+  assert.match(app, /updateStoreLabel\(config\)/);
+  assert.match(server, /pathname === '\/api\/config\/health'/);
+  assert.match(server, /checkConnection\(config\)/);
+  assert.match(warehouse, /SELECT DB_NAME\(\) AS databaseName/);
+  assert.doesNotMatch(app, /DB_PASSWORD|safeStorage|credentials/i);
+});

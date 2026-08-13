@@ -120,6 +120,8 @@ export class ExcelProductRepository extends ProductRepository {
   }
 
   async findByReference(ref) { return this.rows.filter(row => row.ref === clean(ref)); }
+  async findBySupplierRef(supplierRef) { return this.rows.filter(row => row.supplierRef === clean(supplierRef)); }
+  async findByArticleCode(articleCode) { return this.rows.filter(row => row.articleCode === clean(articleCode)); }
   async findByStyle(style) { return this.rows.filter(row => row.style === clean(style)); }
 
   async searchProducts(text, limit = 20) {
@@ -130,6 +132,15 @@ export class ExcelProductRepository extends ProductRepository {
       .some(value => clean(value) === query);
     const matchedReferences = new Set(this.rows.filter(identifierMatch).map(row => row.ref).filter(Boolean));
     const matches = this.rows.filter(row => matchedReferences.has(row.ref));
+    return finalizeGroups(groupByReference(matches)
+      .filter(hasSellableStock)
+      .slice(0, maxResults));
+  }
+
+  async searchProductsByStyle(style, limit = 20) {
+    const value = clean(style);
+    const maxResults = Math.min(Math.max(Number(limit) || 20, 1), 20);
+    const matches = this.rows.filter(row => clean(row.style) === value);
     return finalizeGroups(groupByReference(matches)
       .filter(hasSellableStock)
       .slice(0, maxResults));
