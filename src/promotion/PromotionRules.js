@@ -6,11 +6,35 @@ export const normalizePromotionDescription = value => text(value)
   .toUpperCase()
   .replace(/\s+/g, ' ');
 
-export const isInternalPromotion = promotion => {
+export const EXCLUDED_PROMOTION_CATEGORIES = Object.freeze({
+  2: 'internal',
+  3: 'internal',
+  4: 'internal',
+  541: 'partner',
+  361: 'clearance',
+  620: 'clearance',
+  621: 'clearance',
+  622: 'clearance'
+});
+
+const promotionId = promotion => {
+  const rawId = promotion?.IDPROMOCION ?? promotion?.id;
+  if (rawId == null || text(rawId) === '') return null;
+  const id = Number(rawId);
+  return Number.isInteger(id) ? id : null;
+};
+
+export const isExcludedPromotion = promotion => {
+  const id = promotionId(promotion);
+  if (id != null && Object.hasOwn(EXCLUDED_PROMOTION_CATEGORIES, id)) return true;
+
   const description = normalizePromotionDescription(promotion?.DESCRIPCION ?? promotion?.description);
   return /\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/.test(description)
     || description.includes('MOUNT VIEW SCHOOL');
 };
+
+// Mantener este nombre por compatibilidad con consumidores existentes.
+export const isInternalPromotion = isExcludedPromotion;
 
 const flagTrue = value => ['1', 'true', 'yes', 'si', 's', 't'].includes(text(value).toLowerCase());
 const numberValue = value => {

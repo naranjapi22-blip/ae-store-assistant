@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   calculatePromotionPrice,
   classifyPromotionConditions,
+  EXCLUDED_PROMOTION_CATEGORIES,
   evaluatePromotionGroup,
+  isExcludedPromotion,
   isInternalPromotion,
   isPromotionCurrent,
   isSpecialPromotion,
@@ -112,4 +114,28 @@ test('campo u operador no soportado produce falso negativo', () => {
   assert.equal(evaluatePromotionGroup([
     { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '>', VALOR: '1' }
   ], { DPTO: 2 }), false);
+});
+
+test('exclusiones explícitas por ID clasifican categorías conocidas', () => {
+  assert.deepEqual(EXCLUDED_PROMOTION_CATEGORIES, {
+    2: 'internal',
+    3: 'internal',
+    4: 'internal',
+    541: 'partner',
+    361: 'clearance',
+    620: 'clearance',
+    621: 'clearance',
+    622: 'clearance'
+  });
+
+  for (const id of [2, 3, 4, 361, 541, 620, 621, 622]) {
+    assert.equal(isExcludedPromotion({ id, description: 'Promoción comercial' }), true, `ID ${id}`);
+  }
+});
+
+test('las promociones comerciales no se excluyen por palabras genéricas', () => {
+  for (const id of [17, 98, 286, 536, 537, 574, 607]) {
+    assert.equal(isExcludedPromotion({ id, description: '70% OFF EOSS 2025 COMERCIAL' }), false, `ID ${id}`);
+  }
+  assert.equal(isExcludedPromotion({ id: 999, description: '20% OFF EOSS 2025 COMERCIAL' }), false);
 });

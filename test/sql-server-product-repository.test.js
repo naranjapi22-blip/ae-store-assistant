@@ -226,7 +226,12 @@ test('ProductService agrupa las tallas del repository SQL sin consultas por tall
 });
 
 test('promociones usa una consulta parametrizada, V08/tarifa 5 y no hace N+1', async () => {
-  const pool = mockPool([promotionRow()]);
+  const pool = mockPool([promotionRow({
+    promotionId: 574,
+    promotionDescription: '40% OFF MULTIPACK CR',
+    actionType: 17,
+    actionValue: '12000|0|0|0'
+  })]);
   const repository = new SqlServerProductRepository({ pool });
   const result = await repository.findApplicablePromotions(knownRow({
     departmentCode: 2,
@@ -240,8 +245,8 @@ test('promociones usa una consulta parametrizada, V08/tarifa 5 y no hace N+1', a
   assert.equal(pool.calls[0].params.warehouse, 'V08');
   assert.equal(pool.calls[0].params.tariff, 5);
   assert.deepEqual(result.promotions[0], {
-    id: 620,
-    description: 'PP EOSS CR 12000',
+    id: 574,
+    description: '40% OFF MULTIPACK CR',
     type: 'fixed_price',
     percentage: null,
     promotionalPrice: 12000,
@@ -260,15 +265,21 @@ test('promociones usa una consulta parametrizada, V08/tarifa 5 y no hace N+1', a
 });
 
 test('una promoción con cupón va a conditionalPromotions y no modifica el precio', async () => {
-  const pool = mockPool([promotionRow({ requestSerializedCoupon: 'T' })]);
+  const pool = mockPool([promotionRow({
+    promotionId: 574,
+    promotionDescription: '40% OFF MULTIPACK CR',
+    actionType: 17,
+    actionValue: '12000|0|0|0',
+    requestSerializedCoupon: 'T'
+  })]);
   const repository = new SqlServerProductRepository({ pool });
   const result = await repository.findApplicablePromotions(knownRow({ price: 36800 }));
 
   assert.deepEqual(result.promotions, []);
   assert.equal(result.conditionalPromotions.length, 1);
   assert.deepEqual(result.conditionalPromotions[0], {
-    id: 620,
-    description: 'PP EOSS CR 12000',
+    id: 574,
+    description: '40% OFF MULTIPACK CR',
     type: 'fixed_price',
     percentage: null,
     promotionalPrice: 12000,
@@ -305,9 +316,31 @@ test('286 y 607 comerciales condicionadas permanecen visibles si el producto es 
   assert.ok(result.conditionalPromotions.every(promotion => promotion.conditionType === 'serialized_coupon'));
 });
 
+test('las exclusiones conocidas por ID no llegan a promotions ni conditionalPromotions', async () => {
+  for (const promotionId of [2, 3, 4, 361, 541, 620, 621, 622]) {
+    const pool = mockPool([promotionRow({
+      promotionId,
+      promotionDescription: `Promoción comercial ${promotionId}`,
+      requestSerializedCoupon: 'T'
+    })]);
+    const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
+    assert.deepEqual(result.promotions, [], `promotions para ${promotionId}`);
+    assert.deepEqual(result.conditionalPromotions, [], `conditionalPromotions para ${promotionId}`);
+  }
+});
+
+test('las promociones comerciales 286 y 607 siguen permitidas por ID', async () => {
+  const pool = mockPool([
+    promotionRow({ promotionId: 286, promotionDescription: '20% OFF NEW ARRIVAL ESCAZU CRI', requestSerializedCoupon: 'T' }),
+    promotionRow({ promotionId: 607, promotionDescription: '20% OFF AERIE NEW ARRIVAL ESCAZU CRI', requestSerializedCoupon: 'T' })
+  ]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
+  assert.deepEqual(result.conditionalPromotions.map(promotion => promotion.id), [286, 607]);
+});
+
 test('ARTICPROMOCION directo y ELEMENTOSGRUPO explícito son fuentes válidas', async () => {
-  const directPool = mockPool([promotionRow({ directMatch: 1, explicitGroupMatch: 0 })]);
-  const explicitPool = mockPool([promotionRow({ directMatch: 0, explicitGroupMatch: 1 })]);
+  const directPool = mockPool([promotionRow({ promotionId: 574, directMatch: 1, explicitGroupMatch: 0 })]);
+  const explicitPool = mockPool([promotionRow({ promotionId: 574, explicitGroupMatch: 1, directMatch: 0 })]);
   const context = knownRow({ departmentCode: 2, sectionCode: 43, familyCode: 433, price: 36800 });
 
   assert.equal((await new SqlServerProductRepository({ pool: directPool }).findApplicablePromotions(context)).promotions.length, 1);
@@ -372,7 +405,7 @@ test('fecha vencida, tarifa/acción especial y precio base se manejan conservado
   assert.deepEqual(expiredResult.promotions, []);
   assert.deepEqual(expiredResult.conditionalPromotions, []);
 
-  const special = mockPool([promotionRow({ requestSerializedCoupon: 'T' })]);
+  const special = mockPool([promotionRow({ promotionId: 574, requestSerializedCoupon: 'T' })]);
   const specialResult = await new SqlServerProductRepository({ pool: special }).findApplicablePromotions(knownRow());
   assert.deepEqual(specialResult.promotions, []);
   assert.equal(specialResult.conditionalPromotions.length, 1);

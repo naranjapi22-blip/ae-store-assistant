@@ -4,7 +4,7 @@ import {
   calculatePromotionPrice,
   classifyPromotionConditions,
   evaluatePromotionGroup,
-  isInternalPromotion,
+  isExcludedPromotion,
   isPromotionCurrent,
   parsePromotionAction
 } from '../promotion/PromotionRules.js';
@@ -477,7 +477,7 @@ const promotionFromRows = (rows, productContext) => {
     MOMENTOAPLICACION: first.applicationMoment,
     serverNow: first.serverNow
   };
-  if (!eligible || isInternalPromotion(promotion) || !isPromotionCurrent(promotion, first.serverNow || new Date())) return null;
+  if (!eligible || isExcludedPromotion(promotion) || !isPromotionCurrent(promotion, first.serverNow || new Date())) return null;
 
   const action = actions.length === 1
     ? parsePromotionAction(actions[0])
