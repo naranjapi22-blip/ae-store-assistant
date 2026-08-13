@@ -121,6 +121,19 @@ test('cada talla conserva barcode y usa CODBARRAS2 como fallback', async () => {
   assert.equal(result.sizes[1].stock, -1);
 });
 
+test('consulta exacta conserva en ProductService la talla con stock cero', async () => {
+  const exact = { ref: 'EXACT-0', style: '1', size: 'S', stock: 0, CODBARRAS: '000' };
+  const service = new ProductService({
+    findByReference: async () => [exact],
+    findByStyle: async () => [exact]
+  });
+
+  const result = await service.getProduct(exact);
+
+  assert.equal(result.stock, 0);
+  assert.deepEqual(result.sizes, [{ size: 'S', stock: 0, barcode: '000', barcode2: '' }]);
+});
+
 test('referencia inexistente devuelve null', async () => {
   assert.equal(await new ProductService(repo).getProductByReference('0433-1608-404'), null);
 });
