@@ -286,12 +286,23 @@ test('una promoción con cupón va a conditionalPromotions y no modifica el prec
 });
 
 test('promociones internas de empleados o mercadeo no llegan a ningún resultado', async () => {
-  for (const description of ['20% EMPLEADOS GD CRI', '30% EMPLEADOS GD PAISES', '30% MERCADEO GD']) {
+  for (const description of ['20% EMPLEADOS GD CRI', '30% EMPLEADOS GD PAISES', '30% MERCADEO GD', '15% OFF MOUNT VIEW SCHOOL']) {
     const pool = mockPool([promotionRow({ promotionDescription: description, requestSerializedCoupon: 'T' })]);
     const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
     assert.deepEqual(result.promotions, []);
     assert.deepEqual(result.conditionalPromotions, []);
   }
+});
+
+test('286 y 607 comerciales condicionadas permanecen visibles si el producto es elegible', async () => {
+  const pool = mockPool([
+    promotionRow({ promotionId: 286, promotionDescription: '20% OFF NEW ARRIVAL ESCAZU CRI', requestSerializedCoupon: 'T' }),
+    promotionRow({ promotionId: 607, promotionDescription: '20% OFF AERIE NEW ARRIVAL ESCAZU CRI', requestSerializedCoupon: 'T' })
+  ]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
+  assert.deepEqual(result.promotions, []);
+  assert.deepEqual(result.conditionalPromotions.map(promotion => promotion.id), [286, 607]);
+  assert.ok(result.conditionalPromotions.every(promotion => promotion.conditionType === 'serialized_coupon'));
 });
 
 test('ARTICPROMOCION directo y ELEMENTOSGRUPO explícito son fuentes válidas', async () => {

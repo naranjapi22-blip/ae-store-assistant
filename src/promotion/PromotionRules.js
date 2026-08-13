@@ -8,7 +8,8 @@ export const normalizePromotionDescription = value => text(value)
 
 export const isInternalPromotion = promotion => {
   const description = normalizePromotionDescription(promotion?.DESCRIPCION ?? promotion?.description);
-  return /\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/.test(description);
+  return /\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/.test(description)
+    || description.includes('MOUNT VIEW SCHOOL');
 };
 
 const flagTrue = value => ['1', 'true', 'yes', 'si', 's', 't'].includes(text(value).toLowerCase());

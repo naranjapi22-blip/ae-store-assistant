@@ -50,7 +50,8 @@ const visibleConditionalPromotions = promotions => (Array.isArray(promotions) ? 
   .filter(promotion => promotion
     && promotion.requiresValidation === true
     && promotion.type !== 'unknown'
-    && !/\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/i.test(String(promotion.description || '')))
+    && !/\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/i.test(String(promotion.description || ''))
+    && !String(promotion.description || '').toUpperCase().includes('MOUNT VIEW SCHOOL'))
   .slice(0, 3);
 
 const catalogFetch = async path => {

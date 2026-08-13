@@ -242,7 +242,8 @@ test('la UI no renderiza promociones internas aunque lleguen accidentalmente', a
     promotions: [],
     conditionalPromotions: [
       { id: 2, description: '20% EMPLEADOS GD CRI', type: 'percentage', percentage: 20, requiresValidation: true },
-      { id: 3, description: '30% MERCADEO GD', type: 'percentage', percentage: 30, requiresValidation: true }
+      { id: 3, description: '30% MERCADEO GD', type: 'percentage', percentage: 30, requiresValidation: true },
+      { id: 541, description: '15% OFF MOUNT VIEW SCHOOL', type: 'percentage', percentage: 15, requiresValidation: true }
     ]
   });
   input.value = '005';

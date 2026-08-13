@@ -82,6 +82,8 @@ test('promociones internas de empleados y mercadeo se excluyen por descripción 
   assert.equal(isInternalPromotion({ description: '30% empleados gd países' }), true);
   assert.equal(isInternalPromotion({ description: '30% MERCADEO GD' }), true);
   assert.equal(isInternalPromotion({ description: '  20%   Empleado  ' }), true);
+  assert.equal(isInternalPromotion({ description: '15% OFF MOUNT VIEW SCHOOL' }), true);
+  assert.equal(isInternalPromotion({ description: '  15% off   mount view school  ' }), true);
   assert.equal(isInternalPromotion({ description: '20% OFF NEW ARRIVAL' }), false);
 });
 
