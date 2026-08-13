@@ -159,3 +159,50 @@ test('click en talla visible mantiene cambio local de stock y barcode', async ()
   assert.equal(result.detailBarcode.textContent, '005');
   assert.equal(result.quickStatus.textContent, 'Disponible');
 });
+
+test('muestra solo promociones seguras y no muestra acciones desconocidas', async () => {
+  const { form, input, result } = createBrowserContext({
+    ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
+    promotions: [
+      { id: 1, description: '20% OFF', type: 'percentage', percentage: 20, calculatedPrice: 80 },
+      { id: 2, description: 'Acción sin interpretar', type: 'unknown', calculatedPrice: null }
+    ]
+  });
+  input.value = '005';
+
+  await form.handlers.submit({ preventDefault() {} });
+
+  assert.match(result.html, /Promoci/);
+  assert.match(result.html, /20% de descuento/);
+  assert.match(result.html, /80/);
+  assert.doesNotMatch(result.html, /AcciÃ³n sin interpretar/);
+});
+
+test('muestra promociones de precio fijo y conserva visible el precio base', async () => {
+  const { form, input, result } = createBrowserContext({
+    ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
+    price: 100,
+    promotions: [{ id: 2, description: 'Precio fijo especial', type: 'fixed_price', promotionalPrice: 120, calculatedPrice: 120 }]
+  });
+  input.value = '005';
+
+  await form.handlers.submit({ preventDefault() {} });
+
+  assert.match(result.html, /Precio fijo especial/);
+  assert.match(result.html, /₡120 con promoción/);
+  assert.match(result.html, /<span class="label">Precio<\/span><strong>₡100<\/strong>/);
+});
+
+test('promotions=[] no renderiza bloque ni contenido vacío de promociones', async () => {
+  const { form, input, result } = createBrowserContext({
+    ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
+    promotions: []
+  });
+  input.value = '005';
+
+  await form.handlers.submit({ preventDefault() {} });
+
+  assert.doesNotMatch(result.html, /promotions-section/);
+  assert.doesNotMatch(result.html, /promotion-list/);
+  assert.match(result.html, /<span class="label">Precio<\/span><strong>₡100<\/strong>/);
+});

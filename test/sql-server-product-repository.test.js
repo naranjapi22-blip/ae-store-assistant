@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProductService } from '../src/service/ProductService.js';
-import { SqlServerProductRepository } from '../src/repository/SqlServerProductRepository.js';
+import { ProductRepository } from '../src/repository/ProductRepository.js';
+import { queries, SqlServerProductRepository } from '../src/repository/SqlServerProductRepository.js';
 import { createProductRepository } from '../src/repository/createProductRepository.js';
 
 const knownRow = (overrides = {}) => ({
@@ -53,6 +54,56 @@ const assertReadOnly = text => {
   assert.doesNotMatch(text, /LIKE\s*'%/i);
   assert.match(text.trim(), /^(SELECT|WITH)\b/i);
 };
+
+const promotionRow = (overrides = {}) => ({
+  promotionId: 620,
+  priority: 1,
+  promotionDescription: 'PP EOSS CR 12000',
+  startDate: '2026-06-30',
+  endDate: '2026-08-24',
+  startTime: null,
+  endTime: null,
+  weekDays: '1111111',
+  promotionGroup: 476,
+  clientRequired: 'F',
+  clientGroup: 0,
+  couponEan: null,
+  serializedCoupon: 'F',
+  externalValidation: 'F',
+  manualPromotion: 'F',
+  requestSerializedCoupon: 'F',
+  terminalTypeRequired: 'F',
+  deliveryPromotion: 'F',
+  paymentMethodDiscount: 'F',
+  paymentMethodCode: null,
+  birthdayRequired: 0,
+  applyCount: 0,
+  applyCountPerClient: 0,
+  applyCountPerClientPeriod: 0,
+  applyCountPerClientOffline: 0,
+  birthdayDaysBefore: 0,
+  birthdayDaysAfter: 0,
+  articleCount: 1,
+  minimumAmount: 0,
+  applicationType: 0,
+  applicationCondition: 0,
+  applicationMoment: 0,
+  actionId: 1,
+  actionType: 17,
+  actionValue: '12000|0|0|0',
+  actionValue2: null,
+  groupOr: null,
+  groupAnd: null,
+  includeRule: null,
+  conditionTable: null,
+  conditionField: null,
+  conditionOperator: null,
+  conditionValue: null,
+  directMatch: 1,
+  explicitGroupMatch: 0,
+  serverNow: new Date('2026-08-12T12:00:00Z'),
+  ...overrides
+});
 
 test('consulta barcode con igualdad parametrizada y conserva los datos conocidos', async () => {
   const pool = mockPool([knownRow()]);
@@ -169,8 +220,140 @@ test('ProductService agrupa las tallas del repository SQL sin consultas por tall
     { size: '14 REGULAR', stock: 2 },
     { size: '16 REGULAR', stock: -1 }
   ]);
-  assert.equal(pool.calls.length, 3);
+  assert.equal(pool.calls.length, 4);
+  assert.equal(pool.calls.filter(call => /FROM dbo\.PROMOCIONES\s+P/i.test(call.text)).length, 1);
   assert.equal(pool.calls.filter(call => /L\.TALLA\s*=\s*@/.test(call.text)).length, 0);
+});
+
+test('promociones usa una consulta parametrizada, V08/tarifa 5 y no hace N+1', async () => {
+  const pool = mockPool([promotionRow()]);
+  const repository = new SqlServerProductRepository({ pool });
+  const result = await repository.findApplicablePromotions(knownRow({
+    departmentCode: 2,
+    sectionCode: 43,
+    familyCode: 433,
+    price: 36800
+  }));
+
+  assert.equal(pool.calls.length, 1);
+  assert.equal(pool.calls[0].params.articleCode, 41955);
+  assert.equal(pool.calls[0].params.warehouse, 'V08');
+  assert.equal(pool.calls[0].params.tariff, 5);
+  assert.deepEqual(result.promotions[0], {
+    id: 620,
+    description: 'PP EOSS CR 12000',
+    type: 'fixed_price',
+    percentage: null,
+    promotionalPrice: 12000,
+    calculatedPrice: 12000,
+    startDate: '2026-06-30',
+    endDate: '2026-08-24',
+    priority: 1,
+    source: 'sqlserver'
+  });
+  assert.equal(result.bestPromotionalPrice, 12000);
+  assert.match(pool.calls[0].text, /P\.IDTARIFAV\s*=\s*@tariff/i);
+  assert.match(pool.calls[0].text, /PROMOCIONESTARIFAS/i);
+  assert.match(pool.calls[0].text, /GRUPOSALMACENLIN/i);
+  assert.match(pool.calls[0].text, /GAL\.CODALMACEN\s*=\s*@warehouse/i);
+  assertReadOnly(pool.calls[0].text);
+});
+
+test('ARTICPROMOCION directo y ELEMENTOSGRUPO explícito son fuentes válidas', async () => {
+  const directPool = mockPool([promotionRow({ directMatch: 1, explicitGroupMatch: 0 })]);
+  const explicitPool = mockPool([promotionRow({ directMatch: 0, explicitGroupMatch: 1 })]);
+  const context = knownRow({ departmentCode: 2, sectionCode: 43, familyCode: 433, price: 36800 });
+
+  assert.equal((await new SqlServerProductRepository({ pool: directPool }).findApplicablePromotions(context)).promotions.length, 1);
+  assert.equal((await new SqlServerProductRepository({ pool: explicitPool }).findApplicablePromotions(context)).promotions.length, 1);
+});
+
+test('grupo dinámico evalúa el estado actual y descarta reglas no soportadas', async () => {
+  const pool = mockPool([
+    promotionRow({
+      promotionId: 606,
+      promotionDescription: '40% OFF NEW ARRIVAL ESCAZU CRI',
+      actionType: 4,
+      actionValue: '40|0||0|0',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 468,
+      groupOr: 3,
+      groupAnd: 0,
+      includeRule: 'T',
+      conditionTable: 0,
+      conditionField: 'DPTO',
+      conditionOperator: '=',
+      conditionValue: '2'
+    }),
+    promotionRow({
+      promotionId: 606,
+      actionType: 4,
+      actionValue: '40|0||0|0',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 468,
+      groupOr: 3,
+      groupAnd: 1,
+      includeRule: 'T',
+      conditionTable: 0,
+      conditionField: 'TEMPORADA',
+      conditionOperator: 'LIKE1',
+      conditionValue: '2026'
+    })
+  ]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow({
+    departmentCode: 2,
+    season: 'SPRING 2026',
+    price: 36800
+  }));
+  assert.equal(result.promotions[0].type, 'percentage');
+  assert.equal(result.promotions[0].calculatedPrice, 22080);
+
+  const unsupportedPool = mockPool([promotionRow({
+    directMatch: 0,
+    explicitGroupMatch: 0,
+    conditionField: 'UNKNOWN_FIELD'
+  })]);
+  assert.deepEqual((await new SqlServerProductRepository({ pool: unsupportedPool }).findApplicablePromotions(knownRow())).promotions, []);
+});
+
+test('fecha vencida, tarifa/acción especial y precio base se manejan conservadoramente', async () => {
+  const expired = mockPool([promotionRow({ endDate: '2026-08-11' })]);
+  assert.deepEqual((await new SqlServerProductRepository({ pool: expired }).findApplicablePromotions(knownRow())).promotions, []);
+
+  const special = mockPool([promotionRow({ requestSerializedCoupon: 'T' })]);
+  assert.deepEqual((await new SqlServerProductRepository({ pool: special }).findApplicablePromotions(knownRow())).promotions, []);
+
+  const unknown = mockPool([promotionRow({ actionType: 3, actionValue: '50|0|0' })]);
+  const unknownResult = await new SqlServerProductRepository({ pool: unknown }).findApplicablePromotions(knownRow({ price: 36800 }));
+  assert.equal(unknownResult.promotions[0].type, 'unknown');
+  assert.equal(unknownResult.bestPromotionalPrice, null);
+
+  const multiple = mockPool([
+    promotionRow(),
+    promotionRow({ promotionId: 621, promotionDescription: 'PP EOSS CR 10000', actionValue: '10000|0|0|0' })
+  ]);
+  assert.equal((await new SqlServerProductRepository({ pool: multiple }).findApplicablePromotions(knownRow())).bestPromotionalPrice, null);
+
+  const service = new ProductService({
+    findByReference: async () => [],
+    findByStyle: async () => [],
+    findApplicablePromotions: async () => ({ promotions: [], bestPromotionalPrice: null })
+  });
+  assert.equal((await service.getProduct(knownRow({ price: 36800 }))).price, 36800);
+});
+
+test('Excel/base repository devuelve promociones vacías por compatibilidad', async () => {
+  assert.deepEqual(await new ProductRepository().findApplicablePromotions({}), []);
+});
+
+test('la consulta de promociones es SELECT parametrizado y no usa histórico', () => {
+  assertReadOnly(queries.promotions);
+  assert.match(queries.promotions, /@articleCode/);
+  assert.match(queries.promotions, /@warehouse/);
+  assert.match(queries.promotions, /@tariff/);
+  assert.doesNotMatch(queries.promotions, /ALBVENTALINPROMOCIONES/i);
 });
 
 test('ProductService conserva precio desconocido como null y precio cero como 0', async () => {

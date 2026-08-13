@@ -1,5 +1,12 @@
 import sql from 'mssql';
 import { ProductRepository } from './ProductRepository.js';
+import {
+  calculatePromotionPrice,
+  evaluatePromotionGroup,
+  isPromotionCurrent,
+  isSpecialPromotion,
+  parsePromotionAction
+} from '../promotion/PromotionRules.js';
 
 const clean = value => value == null ? '' : String(value).trim();
 const numberOrZero = value => {
@@ -68,6 +75,10 @@ LEFT JOIN dbo.SUBFAMILIAS SF
 const VARIANT_COLUMNS = `
     A.CODARTICULO AS articleCode,
     A.REFPROVEEDOR AS supplierRef,
+    A.DPTO AS departmentCode,
+    A.SECCION AS sectionCode,
+    A.FAMILIA AS familyCode,
+    A.SUBFAMILIA AS subfamilyCode,
     A.DESCRIPCION AS description,
     A.DESCRIPADIC AS additionalDescription,
     A.TEMPORADA AS season,
@@ -75,6 +86,10 @@ const VARIANT_COLUMNS = `
     CL.STYLE AS style,
     CL.COLORDESC AS colorDescription,
     CL.COLOR_ESP AS colorSpanish,
+    CL.PROMO01 AS promo01,
+    CL.PROMO05 AS promo05,
+    CL.PROMO18 AS promo18,
+    CL.MAYOR_CW AS mayorCw,
     L.TALLA AS size,
     L.COLOR AS color,
     L.CODBARRAS,
@@ -216,6 +231,135 @@ HAVING SUM(COALESCE(ST.STOCK, 0)) > 0
 ORDER BY ${group}`;
 };
 
+const PROMOTION_QUERY = `
+SELECT
+    P.IDPROMOCION AS promotionId,
+    P.PRIORIDAD AS priority,
+    P.DESCRIPCION AS promotionDescription,
+    P.TEXTOIMPRIMIR AS printText,
+    P.TEXTOALAPLICAR AS applyText,
+    P.TEXTOVISIBLEENVISOR AS visibleText,
+    P.FECHAINICIAL AS startDate,
+    P.FECHAFINAL AS endDate,
+    P.HORAINICIAL AS startTime,
+    P.HORAFINAL AS endTime,
+    P.DIASSEMANA AS weekDays,
+    P.IDTARIFAV AS directTariff,
+    P.IDGRUPO AS promotionGroup,
+    P.CLIENTEOBLIGATORIO AS clientRequired,
+    P.IDGRUPOCLIENTES AS clientGroup,
+    P.EANCUPON AS couponEan,
+    P.CUPONSERIALIZADO AS serializedCoupon,
+    P.VALIDACIONEXTERNA AS externalValidation,
+    P.MANUAL AS manualPromotion,
+    P.PEDIRCUPONSERIALIZADO AS requestSerializedCoupon,
+    P.APLICARTIPOTERMINAL AS terminalTypeRequired,
+    P.APLICARDELIVERY AS deliveryPromotion,
+    P.DTOSASFORMAPAGO AS paymentMethodDiscount,
+    P.CODFORMAPAGODTOS AS paymentMethodCode,
+    P.CUMPLEANYOS AS birthdayRequired,
+    P.APLICARNVECES AS applyCount,
+    P.APLICARNVECESPORCLIENTE AS applyCountPerClient,
+    P.APLICARNVECESPORCLIENTECADAPERIODO AS applyCountPerClientPeriod,
+    P.APLICARNVECESPORCLIENTESINCONEX AS applyCountPerClientOffline,
+    P.CUMPLEANYOSXDIASANTES AS birthdayDaysBefore,
+    P.CUMPLEANYOSXDIASDESPUES AS birthdayDaysAfter,
+    P.NUMEROARTICULOS AS articleCount,
+    P.IMPORTEMINIMO AS minimumAmount,
+    P.TIPOAPLICACION AS applicationType,
+    P.CONDICIONAPLICACION AS applicationCondition,
+    P.MOMENTOAPLICACION AS applicationMoment,
+    AP.IDACCION AS actionId,
+    AP.TIPOACCION AS actionType,
+    AP.VALOR AS actionValue,
+    AP.VALOR2 AS actionValue2,
+    C.GRUPOOR AS groupOr,
+    C.GRUPOAND AS groupAnd,
+    C.INCLUIR AS includeRule,
+    C.TABLA AS conditionTable,
+    C.CAMPO AS conditionField,
+    C.OPERADOR AS conditionOperator,
+    C.VALOR AS conditionValue,
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ARTICPROMOCION AD
+        WHERE AD.CODARTICULO = @articleCode
+          AND AD.IDPROMOCION = P.IDPROMOCION
+    ) THEN 1 ELSE 0 END AS directMatch,
+    CASE WHEN EXISTS (
+        SELECT 1
+        FROM dbo.ELEMENTOSGRUPO EG
+        WHERE EG.CODARTICULO = @articleCode
+          AND EG.IDGRUPO = P.IDGRUPO
+    ) THEN 1 ELSE 0 END AS explicitGroupMatch,
+    SYSDATETIME() AS serverNow
+FROM dbo.PROMOCIONES P
+LEFT JOIN dbo.ACCIONESPROMOCION AP
+    ON AP.IDPROMOCION = P.IDPROMOCION
+LEFT JOIN dbo.CONDICIONESGRUPOSARTICULOS C
+    ON C.IDGRUPO = P.IDGRUPO
+WHERE (
+        P.IDTARIFAV = @tariff
+        OR EXISTS (
+            SELECT 1
+            FROM dbo.PROMOCIONESTARIFAS PT
+            WHERE PT.IDPROMOCION = P.IDPROMOCION
+              AND PT.IDTARIFAV = @tariff
+        )
+    )
+  AND (P.FECHAINICIAL IS NULL OR CAST(P.FECHAINICIAL AS date) <= CAST(SYSDATETIME() AS date))
+  AND (P.FECHAFINAL IS NULL OR CAST(P.FECHAFINAL AS date) >= CAST(SYSDATETIME() AS date))
+  AND (P.HORAINICIAL IS NULL OR CAST(SYSDATETIME() AS time) >= CAST(P.HORAINICIAL AS time))
+  AND (P.HORAFINAL IS NULL OR CAST(SYSDATETIME() AS time) <= CAST(P.HORAFINAL AS time))
+  AND (P.HORAINICIAL IS NULL OR P.HORAFINAL IS NULL OR CAST(P.HORAINICIAL AS time) <= CAST(P.HORAFINAL AS time))
+  AND (P.DIASSEMANA IS NULL OR LTRIM(RTRIM(P.DIASSEMANA)) IN ('', '1111111'))
+  AND ISNULL(P.CLIENTEOBLIGATORIO, 'F') <> 'T'
+  AND ISNULL(P.IDGRUPOCLIENTES, 0) = 0
+  AND ISNULL(P.EANCUPON, '') = ''
+  AND ISNULL(P.CUPONSERIALIZADO, 'F') <> 'T'
+  AND ISNULL(P.VALIDACIONEXTERNA, 'F') <> 'T'
+  AND ISNULL(P.MANUAL, 'F') <> 'T'
+  AND ISNULL(P.PEDIRCUPONSERIALIZADO, 'F') <> 'T'
+  AND ISNULL(P.APLICARTIPOTERMINAL, 'F') <> 'T'
+  AND ISNULL(P.APLICARDELIVERY, 'F') <> 'T'
+  AND ISNULL(P.DTOSASFORMAPAGO, 'F') <> 'T'
+  AND ISNULL(P.CODFORMAPAGODTOS, '') = ''
+  AND ISNULL(P.CUMPLEANYOS, 0) = 0
+  AND ISNULL(P.NUMEROARTICULOS, 1) <= 1
+  AND ISNULL(P.IMPORTEMINIMO, 0) <= 0
+  AND ISNULL(P.CONDICIONAPLICACION, 0) = 0
+  AND (
+        NOT EXISTS (
+            SELECT 1
+            FROM dbo.PROMOCIONESGRUPOSALMACEN PGS
+            WHERE PGS.IDPROMOCION = P.IDPROMOCION
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM dbo.PROMOCIONESGRUPOSALMACEN PGS
+            INNER JOIN dbo.GRUPOSALMACENLIN GAL
+                ON GAL.IDGRUPO = PGS.IDGRUPO
+               AND GAL.CODALMACEN = @warehouse
+            WHERE PGS.IDPROMOCION = P.IDPROMOCION
+        )
+    )
+  AND (
+        EXISTS (
+            SELECT 1
+            FROM dbo.ARTICPROMOCION AD
+            WHERE AD.CODARTICULO = @articleCode
+              AND AD.IDPROMOCION = P.IDPROMOCION
+        )
+        OR EXISTS (
+            SELECT 1
+            FROM dbo.ELEMENTOSGRUPO EG
+            WHERE EG.CODARTICULO = @articleCode
+              AND EG.IDGRUPO = P.IDGRUPO
+        )
+        OR P.IDGRUPO IS NOT NULL
+    )
+ORDER BY P.PRIORIDAD, P.IDPROMOCION, AP.IDACCION, C.GRUPOOR, C.GRUPOAND`;
+
 const paramsFor = ({ warehouse, tariff, priceFormat }) => ({
   warehouse: { type: sql.VarChar(20), value: warehouse },
   tariff: { type: sql.Int, value: tariff },
@@ -223,11 +367,21 @@ const paramsFor = ({ warehouse, tariff, priceFormat }) => ({
   hiddenDepartment: { type: sql.NVarChar(255), value: 'muebles' }
 });
 
+const promotionParamsFor = ({ warehouse, tariff, articleCode }) => ({
+  warehouse: { type: sql.VarChar(20), value: warehouse },
+  tariff: { type: sql.Int, value: tariff },
+  articleCode: { type: sql.Int, value: Number.isInteger(Number(articleCode)) ? Number(articleCode) : null }
+});
+
 const mapVariant = row => ({
   CODBARRAS: clean(row.CODBARRAS),
   CODBARRAS2: clean(row.CODBARRAS2),
   CODBARRAS3: clean(row.CODBARRAS3),
   supplierRef: clean(row.supplierRef),
+  departmentCode: row.departmentCode ?? null,
+  sectionCode: row.sectionCode ?? null,
+  familyCode: row.familyCode ?? null,
+  subfamilyCode: row.subfamilyCode ?? null,
   season: clean(row.season),
   description: clean(row.description),
   additionalDescription: clean(row.additionalDescription),
@@ -241,6 +395,10 @@ const mapVariant = row => ({
   composition: '',
   colorDescription: clean(row.colorDescription),
   colorSpanish: clean(row.colorSpanish),
+  promo01: row.promo01 == null ? null : clean(row.promo01),
+  promo05: row.promo05 == null ? null : clean(row.promo05),
+  promo18: row.promo18 == null ? null : clean(row.promo18),
+  mayorCw: row.mayorCw == null ? null : clean(row.mayorCw),
   department: clean(row.department),
   section: clean(row.section),
   family: clean(row.family),
@@ -261,6 +419,97 @@ const mapSummary = row => ({
   stockTotal: numberOrZero(row.stockTotal),
   sizesWithStock: numberOrZero(row.sizesWithStock)
 });
+
+const promotionContextFrom = row => ({
+  DPTO: row.departmentCode,
+  SECCION: row.sectionCode,
+  FAMILIA: row.familyCode,
+  SUBFAMILIA: row.subfamilyCode,
+  TEMPORADA: row.season,
+  REFPROVEEDOR: row.supplierRef,
+  REFERENCIA_STYLO: row.ref,
+  PROMO01: row.promo01,
+  PROMO05: row.promo05,
+  PROMO18: row.promo18,
+  MAYOR_CW: row.mayorCw
+});
+
+const uniqueRows = (rows, key) => [...new Map(rows.map(row => [key(row), row])).values()];
+
+const promotionFromRows = (rows, productContext) => {
+  const first = rows[0];
+  const conditions = uniqueRows(
+    rows.filter(row => row.conditionField != null),
+    row => [row.groupOr, row.groupAnd, row.includeRule, row.conditionTable, row.conditionField, row.conditionOperator, row.conditionValue].join('|')
+  ).map(row => ({
+    GRUPOOR: row.groupOr,
+    GRUPOAND: row.groupAnd,
+    INCLUIR: row.includeRule,
+    TABLA: row.conditionTable,
+    CAMPO: row.conditionField,
+    OPERADOR: row.conditionOperator,
+    VALOR: row.conditionValue
+  }));
+  const actions = uniqueRows(
+    rows.filter(row => row.actionType != null || row.actionId != null),
+    row => [row.actionId, row.actionType, row.actionValue, row.actionValue2].join('|')
+  );
+  const directMatch = rows.some(row => Number(row.directMatch) === 1);
+  const explicitGroupMatch = rows.some(row => Number(row.explicitGroupMatch) === 1);
+  const dynamicMatch = first.promotionGroup != null && evaluatePromotionGroup(conditions, promotionContextFrom(productContext));
+  const eligible = directMatch || explicitGroupMatch || dynamicMatch;
+  const promotion = {
+    IDPROMOCION: first.promotionId,
+    DESCRIPCION: first.promotionDescription,
+    FECHAINICIAL: first.startDate,
+    FECHAFINAL: first.endDate,
+    HORAINICIAL: first.startTime,
+    HORAFINAL: first.endTime,
+    DIASSEMANA: first.weekDays,
+    CLIENTEOBLIGATORIO: first.clientRequired,
+    IDGRUPOCLIENTES: first.clientGroup,
+    EANCUPON: first.couponEan,
+    CUPONSERIALIZADO: first.serializedCoupon,
+    VALIDACIONEXTERNA: first.externalValidation,
+    MANUAL: first.manualPromotion,
+    PEDIRCUPONSERIALIZADO: first.requestSerializedCoupon,
+    APLICARTIPOTERMINAL: first.terminalTypeRequired,
+    APLICARDELIVERY: first.deliveryPromotion,
+    DTOSASFORMAPAGO: first.paymentMethodDiscount,
+    CODFORMAPAGODTOS: first.paymentMethodCode,
+    CUMPLEANYOS: first.birthdayRequired,
+    APLICARNVECES: first.applyCount,
+    APLICARNVECESPORCLIENTE: first.applyCountPerClient,
+    APLICARNVECESPORCLIENTECADAPERIODO: first.applyCountPerClientPeriod,
+    APLICARNVECESPORCLIENTESINCONEX: first.applyCountPerClientOffline,
+    CUMPLEANYOSXDIASANTES: first.birthdayDaysBefore,
+    CUMPLEANYOSXDIASDESPUES: first.birthdayDaysAfter,
+    NUMEROARTICULOS: first.articleCount,
+    IMPORTEMINIMO: first.minimumAmount,
+    TIPOAPLICACION: first.applicationType,
+    CONDICIONAPLICACION: first.applicationCondition,
+    MOMENTOAPLICACION: first.applicationMoment,
+    serverNow: first.serverNow
+  };
+  if (!eligible || isSpecialPromotion(promotion) || !isPromotionCurrent(promotion, first.serverNow || new Date())) return null;
+
+  const action = actions.length === 1
+    ? parsePromotionAction(actions[0])
+    : { type: 'unknown', percentage: null, promotionalPrice: null };
+  const basePrice = numberOrNull(productContext.price);
+  return {
+    id: numberOrNull(first.promotionId),
+    description: clean(first.promotionDescription || first.applyText || first.printText),
+    type: action.type,
+    percentage: action.percentage,
+    promotionalPrice: action.promotionalPrice,
+    calculatedPrice: calculatePromotionPrice(action, basePrice),
+    startDate: first.startDate ?? null,
+    endDate: first.endDate ?? null,
+    priority: numberOrNull(first.priority),
+    source: 'sqlserver'
+  };
+};
 
 const boolFromEnv = (value, fallback) => {
   if (value == null || value === '') return fallback;
@@ -430,6 +679,34 @@ export class SqlServerProductRepository extends ProductRepository {
     return rows.map(mapSummary);
   }
 
+  async findApplicablePromotions(productContext) {
+    const rows = await this.query(PROMOTION_QUERY, promotionParamsFor({
+      warehouse: this.warehouse,
+      tariff: this.tariff,
+      articleCode: productContext?.articleCode
+    }));
+    const grouped = new Map();
+    for (const row of rows) {
+      const key = row.promotionId;
+      if (key == null) continue;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(row);
+    }
+    const promotions = [...grouped.values()]
+      .map(group => promotionFromRows(group, productContext || {}))
+      .filter(Boolean)
+      .sort((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER)
+        || (left.id ?? Number.MAX_SAFE_INTEGER) - (right.id ?? Number.MAX_SAFE_INTEGER));
+    // No hay regla confirmada de acumulación/prioridad entre varias promociones.
+    // El precio "mejor" solo es seguro cuando existe una única opción aplicable.
+    const comparable = promotions.length === 1
+      && promotions.every(promotion => promotion.type !== 'unknown' && Number.isFinite(promotion.calculatedPrice));
+    return {
+      promotions,
+      bestPromotionalPrice: comparable ? Math.min(...promotions.map(promotion => promotion.calculatedPrice)) : null
+    };
+  }
+
   async close() {
     if (this.pool?.close) await this.pool.close();
     this.pool = null;
@@ -437,4 +714,11 @@ export class SqlServerProductRepository extends ProductRepository {
   }
 }
 
-export const queries = { variantQuery, search: MATCHED_REFERENCES_CTE, catalogSummaryQuery, similarQuery, categoryQuery };
+export const queries = {
+  variantQuery,
+  search: MATCHED_REFERENCES_CTE,
+  catalogSummaryQuery,
+  similarQuery,
+  categoryQuery,
+  promotions: PROMOTION_QUERY
+};

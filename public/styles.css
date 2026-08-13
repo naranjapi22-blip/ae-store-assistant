@@ -63,6 +63,12 @@ input::placeholder { color: #a4a4a2; font-weight: 400; }
 .operational-details > div { min-width: 0; padding: 11px 13px; border: 1px solid #e6e6e4; border-radius: 9px; background: #fafafa; }
 .operational-details .label { display: block; }
 .operational-details strong { display: block; overflow-wrap: anywhere; font-size: 14px; line-height: 1.25; }
+.promotions-section { margin-bottom: 14px; padding: 13px 15px; border: 1px solid #ead9b5; border-radius: 10px; background: #fffaf0; }
+.promotions-section .subsection-heading { margin-bottom: 8px; }
+.promotion-list { display: grid; gap: 7px; }
+.promotion-item { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.35; }
+.promotion-item strong { overflow-wrap: anywhere; }
+.promotion-item span { flex: 0 0 auto; color: var(--amber); font-weight: 700; text-align: right; }
 .stock-badge { display: inline-flex; align-items: center; margin-top: 6px; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .stock-ok .stock-badge, .size-card.stock-ok .size-status { color: var(--green); }
 .stock-low .stock-badge, .size-card.stock-low .size-status { color: var(--amber); }

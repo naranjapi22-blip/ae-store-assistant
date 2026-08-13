@@ -153,6 +153,16 @@ export class ProductService {
       }
     }
 
+    const promotionResult = this.repository.findApplicablePromotions
+      ? await this.repository.findApplicablePromotions(row)
+      : [];
+    const promotions = Array.isArray(promotionResult)
+      ? promotionResult
+      : Array.isArray(promotionResult?.promotions) ? promotionResult.promotions : [];
+    const bestPromotionalPrice = Array.isArray(promotionResult)
+      ? null
+      : priceOrNull(promotionResult?.bestPromotionalPrice);
+
     return {
       image: imageFromReference(row.ref),
       description: row.description,
@@ -172,7 +182,9 @@ export class ProductService {
       scannedSize: row.size,
       stock: row.stock,
       sizes: [...sizeStock.values()],
-      relatedColors: safeColors
+      relatedColors: safeColors,
+      promotions,
+      bestPromotionalPrice
     };
   }
 }

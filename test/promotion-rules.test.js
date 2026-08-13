@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  calculatePromotionPrice,
+  evaluatePromotionGroup,
+  isPromotionCurrent,
+  isSpecialPromotion,
+  parsePromotionAction
+} from '../src/promotion/PromotionRules.js';
+
+const current = {
+  FECHAINICIAL: '2026-08-01',
+  FECHAFINAL: '2026-08-31',
+  HORAINICIAL: null,
+  HORAFINAL: null,
+  DIASSEMANA: '1111111'
+};
+
+test('acción tipo 4 se interpreta como porcentaje', () => {
+  assert.deepEqual(parsePromotionAction({ TIPOACCION: 4, VALOR: '20|0||0|0' }), {
+    type: 'percentage', percentage: 20, promotionalPrice: null
+  });
+  assert.equal(calculatePromotionPrice(parsePromotionAction({ TIPOACCION: 4, VALOR: '20|0||0|0' }), 36800), 29440);
+});
+
+test('acción tipo 17 se interpreta como precio fijo', () => {
+  const action = parsePromotionAction({ TIPOACCION: 17, VALOR: '12000|0|0|0' });
+  assert.deepEqual(action, { type: 'fixed_price', percentage: null, promotionalPrice: 12000 });
+  assert.equal(calculatePromotionPrice(action, 36800), 12000);
+});
+
+test('acción desconocida no inventa un beneficio', () => {
+  const action = parsePromotionAction({ TIPOACCION: 3, VALOR: '50|0|0' });
+  assert.equal(action.type, 'unknown');
+  assert.equal(calculatePromotionPrice(action, 36800), null);
+});
+
+test('promoción fuera de fecha o con días no demostrados queda excluida', () => {
+  const now = new Date('2026-08-12T12:00:00Z');
+  assert.equal(isPromotionCurrent({ ...current, FECHAFINAL: '2026-08-11' }, now), false);
+  assert.equal(isPromotionCurrent({ ...current, DIASSEMANA: '0100000' }, now), false);
+  assert.equal(isPromotionCurrent(current, now), true);
+});
+
+test('promociones especiales no se consideran automáticas', () => {
+  assert.equal(isSpecialPromotion({ ...current, PEDIRCUPONSERIALIZADO: 'T' }), true);
+  assert.equal(isSpecialPromotion({ ...current, DESCRIPCION: '20% EMPLEADOS GD CRI' }), true);
+  assert.equal(isSpecialPromotion({ ...current, CLIENTEOBLIGATORIO: 'T' }), true);
+  assert.equal(isSpecialPromotion({ ...current, NUMEROARTICULOS: 2 }), true);
+  assert.equal(isSpecialPromotion({ ...current, DESCRIPCION: '20% OFF NEW ARRIVAL', CLIENTEOBLIGATORIO: 'F' }), false);
+});
+
+test('grupo 468 se evalúa con alternativas OR y condiciones AND actuales', () => {
+  const conditions = [
+    { GRUPOOR: 3, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'TEMPORADA', OPERADOR: '=', VALOR: 'SPRING 2025' },
+    { GRUPOOR: 3, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '2' },
+    { GRUPOOR: 3, GRUPOAND: 1, INCLUIR: 'T', TABLA: 0, CAMPO: 'TEMPORADA', OPERADOR: 'LIKE1', VALOR: '2026' }
+  ];
+  assert.equal(evaluatePromotionGroup(conditions, { DPTO: 2, TEMPORADA: 'SPRING 2026' }), true);
+  assert.equal(evaluatePromotionGroup(conditions, { DPTO: 1, TEMPORADA: 'SPRING 2026' }), false);
+});
+
+test('campo u operador no soportado produce falso negativo', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'PRECIO', OPERADOR: '=', VALOR: '100' }
+  ], { DPTO: 2 }), false);
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '>', VALOR: '1' }
+  ], { DPTO: 2 }), false);
+});
