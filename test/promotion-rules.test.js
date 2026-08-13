@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculatePromotionPrice,
+  classifyPromotionConditions,
   evaluatePromotionGroup,
+  isInternalPromotion,
   isPromotionCurrent,
   isSpecialPromotion,
   parsePromotionAction
@@ -48,6 +50,47 @@ test('promociones especiales no se consideran automáticas', () => {
   assert.equal(isSpecialPromotion({ ...current, CLIENTEOBLIGATORIO: 'T' }), true);
   assert.equal(isSpecialPromotion({ ...current, NUMEROARTICULOS: 2 }), true);
   assert.equal(isSpecialPromotion({ ...current, DESCRIPCION: '20% OFF NEW ARRIVAL', CLIENTEOBLIGATORIO: 'F' }), false);
+});
+
+test('clasifica condiciones externas con labels informativos', () => {
+  assert.deepEqual(classifyPromotionConditions({ PEDIRCUPONSERIALIZADO: 'T' }), {
+    isConditional: true,
+    conditionType: 'serialized_coupon',
+    conditionTypes: ['serialized_coupon'],
+    conditionLabel: 'Requiere cupón',
+    requiresValidation: true
+  });
+  assert.deepEqual(classifyPromotionConditions({ IDGRUPOCLIENTES: 4 }), {
+    isConditional: true,
+    conditionType: 'customer',
+    conditionTypes: ['customer'],
+    conditionLabel: 'Depende del cliente',
+    requiresValidation: true
+  });
+  assert.deepEqual(classifyPromotionConditions({ IMPORTEMINIMO: 10000 }), {
+    isConditional: true,
+    conditionType: 'minimum_purchase',
+    conditionTypes: ['minimum_purchase'],
+    conditionLabel: 'Requiere compra mínima',
+    requiresValidation: true
+  });
+  assert.equal(classifyPromotionConditions({}).isConditional, false);
+});
+
+test('promociones internas de empleados y mercadeo se excluyen por descripción normalizada', () => {
+  assert.equal(isInternalPromotion({ description: '20% EMPLEADOS GD CRI' }), true);
+  assert.equal(isInternalPromotion({ description: '30% empleados gd países' }), true);
+  assert.equal(isInternalPromotion({ description: '30% MERCADEO GD' }), true);
+  assert.equal(isInternalPromotion({ description: '  20%   Empleado  ' }), true);
+  assert.equal(isInternalPromotion({ description: '20% OFF NEW ARRIVAL' }), false);
+});
+
+test('varias condiciones usan label general de validación en caja', () => {
+  const result = classifyPromotionConditions({ PEDIRCUPONSERIALIZADO: 'T', IMPORTEMINIMO: 10000 });
+  assert.equal(result.conditionType, 'multiple');
+  assert.deepEqual(result.conditionTypes, ['serialized_coupon', 'minimum_purchase']);
+  assert.equal(result.conditionLabel, 'Aplican condiciones - validar en caja');
+  assert.equal(result.requiresValidation, true);
 });
 
 test('grupo 468 se evalúa con alternativas OR y condiciones AND actuales', () => {

@@ -259,6 +259,41 @@ test('promociones usa una consulta parametrizada, V08/tarifa 5 y no hace N+1', a
   assertReadOnly(pool.calls[0].text);
 });
 
+test('una promoción con cupón va a conditionalPromotions y no modifica el precio', async () => {
+  const pool = mockPool([promotionRow({ requestSerializedCoupon: 'T' })]);
+  const repository = new SqlServerProductRepository({ pool });
+  const result = await repository.findApplicablePromotions(knownRow({ price: 36800 }));
+
+  assert.deepEqual(result.promotions, []);
+  assert.equal(result.conditionalPromotions.length, 1);
+  assert.deepEqual(result.conditionalPromotions[0], {
+    id: 620,
+    description: 'PP EOSS CR 12000',
+    type: 'fixed_price',
+    percentage: null,
+    promotionalPrice: 12000,
+    calculatedPrice: null,
+    startDate: '2026-06-30',
+    endDate: '2026-08-24',
+    priority: 1,
+    source: 'sqlserver',
+    conditionType: 'serialized_coupon',
+    conditionTypes: ['serialized_coupon'],
+    conditionLabel: 'Requiere cupón',
+    requiresValidation: true
+  });
+  assert.equal(result.bestPromotionalPrice, null);
+});
+
+test('promociones internas de empleados o mercadeo no llegan a ningún resultado', async () => {
+  for (const description of ['20% EMPLEADOS GD CRI', '30% EMPLEADOS GD PAISES', '30% MERCADEO GD']) {
+    const pool = mockPool([promotionRow({ promotionDescription: description, requestSerializedCoupon: 'T' })]);
+    const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
+    assert.deepEqual(result.promotions, []);
+    assert.deepEqual(result.conditionalPromotions, []);
+  }
+});
+
 test('ARTICPROMOCION directo y ELEMENTOSGRUPO explícito son fuentes válidas', async () => {
   const directPool = mockPool([promotionRow({ directMatch: 1, explicitGroupMatch: 0 })]);
   const explicitPool = mockPool([promotionRow({ directMatch: 0, explicitGroupMatch: 1 })]);
@@ -315,19 +350,26 @@ test('grupo dinámico evalúa el estado actual y descarta reglas no soportadas',
     explicitGroupMatch: 0,
     conditionField: 'UNKNOWN_FIELD'
   })]);
-  assert.deepEqual((await new SqlServerProductRepository({ pool: unsupportedPool }).findApplicablePromotions(knownRow())).promotions, []);
+  const unsupportedResult = await new SqlServerProductRepository({ pool: unsupportedPool }).findApplicablePromotions(knownRow());
+  assert.deepEqual(unsupportedResult.promotions, []);
+  assert.deepEqual(unsupportedResult.conditionalPromotions, []);
 });
 
 test('fecha vencida, tarifa/acción especial y precio base se manejan conservadoramente', async () => {
   const expired = mockPool([promotionRow({ endDate: '2026-08-11' })]);
-  assert.deepEqual((await new SqlServerProductRepository({ pool: expired }).findApplicablePromotions(knownRow())).promotions, []);
+  const expiredResult = await new SqlServerProductRepository({ pool: expired }).findApplicablePromotions(knownRow());
+  assert.deepEqual(expiredResult.promotions, []);
+  assert.deepEqual(expiredResult.conditionalPromotions, []);
 
   const special = mockPool([promotionRow({ requestSerializedCoupon: 'T' })]);
-  assert.deepEqual((await new SqlServerProductRepository({ pool: special }).findApplicablePromotions(knownRow())).promotions, []);
+  const specialResult = await new SqlServerProductRepository({ pool: special }).findApplicablePromotions(knownRow());
+  assert.deepEqual(specialResult.promotions, []);
+  assert.equal(specialResult.conditionalPromotions.length, 1);
 
   const unknown = mockPool([promotionRow({ actionType: 3, actionValue: '50|0|0' })]);
   const unknownResult = await new SqlServerProductRepository({ pool: unknown }).findApplicablePromotions(knownRow({ price: 36800 }));
-  assert.equal(unknownResult.promotions[0].type, 'unknown');
+  assert.deepEqual(unknownResult.promotions, []);
+  assert.deepEqual(unknownResult.conditionalPromotions, []);
   assert.equal(unknownResult.bestPromotionalPrice, null);
 
   const multiple = mockPool([
@@ -339,9 +381,15 @@ test('fecha vencida, tarifa/acción especial y precio base se manejan conservado
   const service = new ProductService({
     findByReference: async () => [],
     findByStyle: async () => [],
-    findApplicablePromotions: async () => ({ promotions: [], bestPromotionalPrice: null })
+    findApplicablePromotions: async () => ({
+      promotions: [],
+      conditionalPromotions: [{ id: 620, conditionLabel: 'Requiere cupón', requiresValidation: true }],
+      bestPromotionalPrice: null
+    })
   });
-  assert.equal((await service.getProduct(knownRow({ price: 36800 }))).price, 36800);
+  const serviceProduct = await service.getProduct(knownRow({ price: 36800 }));
+  assert.equal(serviceProduct.price, 36800);
+  assert.equal(serviceProduct.conditionalPromotions.length, 1);
 });
 
 test('Excel/base repository devuelve promociones vacías por compatibilidad', async () => {

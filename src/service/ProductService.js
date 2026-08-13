@@ -159,6 +159,9 @@ export class ProductService {
     const promotions = Array.isArray(promotionResult)
       ? promotionResult
       : Array.isArray(promotionResult?.promotions) ? promotionResult.promotions : [];
+    const conditionalPromotions = Array.isArray(promotionResult)
+      ? []
+      : Array.isArray(promotionResult?.conditionalPromotions) ? promotionResult.conditionalPromotions : [];
     const bestPromotionalPrice = Array.isArray(promotionResult)
       ? null
       : priceOrNull(promotionResult?.bestPromotionalPrice);
@@ -184,6 +187,7 @@ export class ProductService {
       sizes: [...sizeStock.values()],
       relatedColors: safeColors,
       promotions,
+      conditionalPromotions,
       bestPromotionalPrice
     };
   }

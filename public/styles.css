@@ -69,6 +69,11 @@ input::placeholder { color: #a4a4a2; font-weight: 400; }
 .promotion-item { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.35; }
 .promotion-item strong { overflow-wrap: anywhere; }
 .promotion-item span { flex: 0 0 auto; color: var(--amber); font-weight: 700; text-align: right; }
+.conditional-promotions-section { margin-bottom: 14px; padding: 13px 15px; border: 1px solid #d9d9d7; border-radius: 10px; background: #fafafa; }
+.conditional-promotion-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; font-size: 12px; line-height: 1.35; }
+.conditional-promotion-item strong { overflow-wrap: anywhere; }
+.conditional-promotion-item span { color: #555; font-weight: 700; }
+.conditional-promotion-item small { grid-column: 1 / -1; color: var(--amber); font-weight: 700; }
 .stock-badge { display: inline-flex; align-items: center; margin-top: 6px; padding: 4px 8px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .stock-ok .stock-badge, .size-card.stock-ok .size-status { color: var(--green); }
 .stock-low .stock-badge, .size-card.stock-low .size-status { color: var(--amber); }

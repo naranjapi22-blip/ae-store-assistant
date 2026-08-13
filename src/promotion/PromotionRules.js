@@ -1,5 +1,16 @@
 const text = value => value == null ? '' : String(value).trim();
 
+export const normalizePromotionDescription = value => text(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase()
+  .replace(/\s+/g, ' ');
+
+export const isInternalPromotion = promotion => {
+  const description = normalizePromotionDescription(promotion?.DESCRIPCION ?? promotion?.description);
+  return /\b(?:EMPLEADO|EMPLEADOS|MERCADEO)\b/.test(description);
+};
+
 const flagTrue = value => ['1', 'true', 'yes', 'si', 's', 't'].includes(text(value).toLowerCase());
 const numberValue = value => {
   if (value == null || text(value) === '') return null;
@@ -106,27 +117,51 @@ export const isPromotionCurrent = (promotion, now = new Date()) => {
   return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
 };
 
-export const isSpecialPromotion = promotion => {
+export const classifyPromotionConditions = promotion => {
+  const conditions = [];
+  const add = (type, label) => {
+    if (!conditions.some(condition => condition.type === type)) conditions.push({ type, label });
+  };
   const description = text(promotion.DESCRIPCION ?? promotion.description);
-  if (/EMPLEADOS|MERCADEO/i.test(description)) return true;
-  if (flagTrue(promotion.CLIENTEOBLIGATORIO)) return true;
-  if (numberValue(promotion.IDGRUPOCLIENTES) > 0) return true;
-  if (text(promotion.EANCUPON) || flagTrue(promotion.CUPONSERIALIZADO)) return true;
-  if (flagTrue(promotion.VALIDACIONEXTERNA) || flagTrue(promotion.MANUAL)) return true;
-  if (flagTrue(promotion.PEDIRCUPONSERIALIZADO)) return true;
-  if (flagTrue(promotion.APLICARTIPOTERMINAL) || flagTrue(promotion.APLICARDELIVERY)) return true;
-  if (flagTrue(promotion.DTOSASFORMAPAGO) || text(promotion.CODFORMAPAGODTOS)) return true;
-  if (nonZero(promotion.CUMPLEANYOS)) return true;
+  if (/EMPLEADOS/i.test(description)) add('customer', 'Depende del cliente');
+  if (/MERCADEO/i.test(description)) add('external', 'Validar condiciones en caja');
+  if (flagTrue(promotion.CLIENTEOBLIGATORIO) || numberValue(promotion.IDGRUPOCLIENTES) > 0) add('customer', 'Depende del cliente');
+  if (text(promotion.EANCUPON) || flagTrue(promotion.CUPONSERIALIZADO) || flagTrue(promotion.PEDIRCUPONSERIALIZADO)) {
+    add('serialized_coupon', 'Requiere cupón');
+  }
+  if (flagTrue(promotion.VALIDACIONEXTERNA)) add('external', 'Validar condiciones en caja');
+  if (flagTrue(promotion.MANUAL)) add('manual', 'Requiere validación en caja');
+  if (flagTrue(promotion.APLICARTIPOTERMINAL) || flagTrue(promotion.APLICARDELIVERY)) add('external', 'Validar condiciones en caja');
+  if (flagTrue(promotion.DTOSASFORMAPAGO) || text(promotion.CODFORMAPAGODTOS)) add('payment', 'Depende de la forma de pago');
+  if (nonZero(promotion.CUMPLEANYOS)) add('customer', 'Depende del cliente');
   if (nonZero(promotion.APLICARNVECES)
     || nonZero(promotion.APLICARNVECESPORCLIENTE)
     || nonZero(promotion.APLICARNVECESPORCLIENTECADAPERIODO)
     || nonZero(promotion.APLICARNVECESPORCLIENTESINCONEX)
     || nonZero(promotion.CUMPLEANYOSXDIASANTES)
-    || nonZero(promotion.CUMPLEANYOSXDIASDESPUES)) return true;
-  if (numberValue(promotion.NUMEROARTICULOS) > 1 || numberValue(promotion.IMPORTEMINIMO) > 0) return true;
-  if (nonZero(promotion.TIPOAPLICACION) || nonZero(promotion.CONDICIONAPLICACION) || nonZero(promotion.MOMENTOAPLICACION)) return true;
-  return false;
+    || nonZero(promotion.CUMPLEANYOSXDIASDESPUES)) add('customer', 'Depende del cliente');
+  if (numberValue(promotion.NUMEROARTICULOS) > 1) add('multiple_items', 'Requiere múltiples artículos');
+  if (numberValue(promotion.IMPORTEMINIMO) > 0) add('minimum_purchase', 'Requiere compra mínima');
+  if (nonZero(promotion.TIPOAPLICACION) || nonZero(promotion.CONDICIONAPLICACION) || nonZero(promotion.MOMENTOAPLICACION)) {
+    add('external', 'Validar condiciones en caja');
+  }
+  if (!conditions.length) {
+    return { isConditional: false, conditionType: null, conditionTypes: [], conditionLabel: null, requiresValidation: false };
+  }
+  const conditionTypes = conditions.map(condition => condition.type);
+  const conditionLabel = conditions.length === 1
+    ? conditions[0].label
+    : 'Aplican condiciones - validar en caja';
+  return {
+    isConditional: true,
+    conditionType: conditions.length === 1 ? conditions[0].type : 'multiple',
+    conditionTypes,
+    conditionLabel,
+    requiresValidation: true
+  };
 };
+
+export const isSpecialPromotion = promotion => classifyPromotionConditions(promotion).isConditional;
 
 export const parsePromotionAction = action => {
   const segments = text(action?.VALOR ?? action?.actionValue).split('|');

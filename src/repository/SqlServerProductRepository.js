@@ -2,9 +2,10 @@ import sql from 'mssql';
 import { ProductRepository } from './ProductRepository.js';
 import {
   calculatePromotionPrice,
+  classifyPromotionConditions,
   evaluatePromotionGroup,
+  isInternalPromotion,
   isPromotionCurrent,
-  isSpecialPromotion,
   parsePromotionAction
 } from '../promotion/PromotionRules.js';
 
@@ -313,21 +314,6 @@ WHERE (
   AND (P.HORAFINAL IS NULL OR CAST(SYSDATETIME() AS time) <= CAST(P.HORAFINAL AS time))
   AND (P.HORAINICIAL IS NULL OR P.HORAFINAL IS NULL OR CAST(P.HORAINICIAL AS time) <= CAST(P.HORAFINAL AS time))
   AND (P.DIASSEMANA IS NULL OR LTRIM(RTRIM(P.DIASSEMANA)) IN ('', '1111111'))
-  AND ISNULL(P.CLIENTEOBLIGATORIO, 'F') <> 'T'
-  AND ISNULL(P.IDGRUPOCLIENTES, 0) = 0
-  AND ISNULL(P.EANCUPON, '') = ''
-  AND ISNULL(P.CUPONSERIALIZADO, 'F') <> 'T'
-  AND ISNULL(P.VALIDACIONEXTERNA, 'F') <> 'T'
-  AND ISNULL(P.MANUAL, 'F') <> 'T'
-  AND ISNULL(P.PEDIRCUPONSERIALIZADO, 'F') <> 'T'
-  AND ISNULL(P.APLICARTIPOTERMINAL, 'F') <> 'T'
-  AND ISNULL(P.APLICARDELIVERY, 'F') <> 'T'
-  AND ISNULL(P.DTOSASFORMAPAGO, 'F') <> 'T'
-  AND ISNULL(P.CODFORMAPAGODTOS, '') = ''
-  AND ISNULL(P.CUMPLEANYOS, 0) = 0
-  AND ISNULL(P.NUMEROARTICULOS, 1) <= 1
-  AND ISNULL(P.IMPORTEMINIMO, 0) <= 0
-  AND ISNULL(P.CONDICIONAPLICACION, 0) = 0
   AND (
         NOT EXISTS (
             SELECT 1
@@ -491,13 +477,15 @@ const promotionFromRows = (rows, productContext) => {
     MOMENTOAPLICACION: first.applicationMoment,
     serverNow: first.serverNow
   };
-  if (!eligible || isSpecialPromotion(promotion) || !isPromotionCurrent(promotion, first.serverNow || new Date())) return null;
+  if (!eligible || isInternalPromotion(promotion) || !isPromotionCurrent(promotion, first.serverNow || new Date())) return null;
 
   const action = actions.length === 1
     ? parsePromotionAction(actions[0])
     : { type: 'unknown', percentage: null, promotionalPrice: null };
+  if (action.type === 'unknown') return null;
+  const conditionState = classifyPromotionConditions(promotion);
   const basePrice = numberOrNull(productContext.price);
-  return {
+  const result = {
     id: numberOrNull(first.promotionId),
     description: clean(first.promotionDescription || first.applyText || first.printText),
     type: action.type,
@@ -509,6 +497,17 @@ const promotionFromRows = (rows, productContext) => {
     priority: numberOrNull(first.priority),
     source: 'sqlserver'
   };
+  if (conditionState.isConditional) {
+    return {
+      ...result,
+      calculatedPrice: null,
+      conditionType: conditionState.conditionType,
+      conditionTypes: conditionState.conditionTypes,
+      conditionLabel: conditionState.conditionLabel,
+      requiresValidation: true
+    };
+  }
+  return result;
 };
 
 const boolFromEnv = (value, fallback) => {
@@ -692,17 +691,20 @@ export class SqlServerProductRepository extends ProductRepository {
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key).push(row);
     }
-    const promotions = [...grouped.values()]
+    const evaluatedPromotions = [...grouped.values()]
       .map(group => promotionFromRows(group, productContext || {}))
       .filter(Boolean)
       .sort((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER)
         || (left.id ?? Number.MAX_SAFE_INTEGER) - (right.id ?? Number.MAX_SAFE_INTEGER));
+    const promotions = evaluatedPromotions.filter(promotion => !promotion.requiresValidation);
+    const conditionalPromotions = evaluatedPromotions.filter(promotion => promotion.requiresValidation);
     // No hay regla confirmada de acumulación/prioridad entre varias promociones.
     // El precio "mejor" solo es seguro cuando existe una única opción aplicable.
     const comparable = promotions.length === 1
       && promotions.every(promotion => promotion.type !== 'unknown' && Number.isFinite(promotion.calculatedPrice));
     return {
       promotions,
+      conditionalPromotions,
       bestPromotionalPrice: comparable ? Math.min(...promotions.map(promotion => promotion.calculatedPrice)) : null
     };
   }

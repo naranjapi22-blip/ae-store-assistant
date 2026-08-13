@@ -196,7 +196,8 @@ test('muestra promociones de precio fijo y conserva visible el precio base', asy
 test('promotions=[] no renderiza bloque ni contenido vacío de promociones', async () => {
   const { form, input, result } = createBrowserContext({
     ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
-    promotions: []
+    promotions: [],
+    conditionalPromotions: []
   });
   input.value = '005';
 
@@ -205,4 +206,49 @@ test('promotions=[] no renderiza bloque ni contenido vacío de promociones', asy
   assert.doesNotMatch(result.html, /promotions-section/);
   assert.doesNotMatch(result.html, /promotion-list/);
   assert.match(result.html, /<span class="label">Precio<\/span><strong>₡100<\/strong>/);
+});
+
+test('muestra promociones condicionadas con validación en caja sin afirmar aplicación', async () => {
+  const { form, input, result } = createBrowserContext({
+    ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
+    price: 36800,
+    promotions: [],
+    conditionalPromotions: [{
+      id: 286,
+      description: '20% OFF NEW ARRIVAL',
+      type: 'percentage',
+      percentage: 20,
+      promotionalPrice: null,
+      calculatedPrice: null,
+      conditionType: 'serialized_coupon',
+      conditionLabel: 'Requiere cupón',
+      requiresValidation: true
+    }]
+  });
+  input.value = '005';
+
+  await form.handlers.submit({ preventDefault() {} });
+
+  assert.match(result.html, /Promociones con condiciones/);
+  assert.match(result.html, /20% con cupón/);
+  assert.match(result.html, /Requiere cupón/);
+  assert.match(result.html, /Precio<\/span><strong>₡36\s800<\/strong>/);
+  assert.doesNotMatch(result.html, /Precio final|Descuento aplicado|Ahorras/);
+});
+
+test('la UI no renderiza promociones internas aunque lleguen accidentalmente', async () => {
+  const { form, input, result } = createBrowserContext({
+    ...productPayload([{ size: 'S', stock: 5, barcode: '005' }]),
+    promotions: [],
+    conditionalPromotions: [
+      { id: 2, description: '20% EMPLEADOS GD CRI', type: 'percentage', percentage: 20, requiresValidation: true },
+      { id: 3, description: '30% MERCADEO GD', type: 'percentage', percentage: 30, requiresValidation: true }
+    ]
+  });
+  input.value = '005';
+
+  await form.handlers.submit({ preventDefault() {} });
+
+  assert.doesNotMatch(result.html, /EMPLEADOS|MERCADEO/);
+  assert.doesNotMatch(result.html, /conditional-promotions-section/);
 });
