@@ -1,14 +1,29 @@
 {
   "name": "ae-store-assistant",
+  "productName": "AE Store Assistant",
   "version": "0.1.0",
   "private": true,
+  "description": "Aplicación de consulta de inventario para tiendas American Eagle",
+  "author": "Grupo David",
   "type": "module",
+  "main": "electron/main.cjs",
+  "overrides": {
+    "yauzl": "^3.3.1"
+  },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "desktop": "electron-forge start",
+    "make": "electron-forge make"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "mssql": "^11.0.1",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "electron": "^43.4.0"
   }
 }

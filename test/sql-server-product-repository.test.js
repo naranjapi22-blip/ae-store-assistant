@@ -339,8 +339,8 @@ test('las promociones comerciales 286 y 607 siguen permitidas por ID', async () 
 });
 
 test('ARTICPROMOCION directo y ELEMENTOSGRUPO explícito son fuentes válidas', async () => {
-  const directPool = mockPool([promotionRow({ promotionId: 574, directMatch: 1, explicitGroupMatch: 0 })]);
-  const explicitPool = mockPool([promotionRow({ promotionId: 574, explicitGroupMatch: 1, directMatch: 0 })]);
+  const directPool = mockPool([promotionRow({ promotionId: 286, directMatch: 1, explicitGroupMatch: 0 })]);
+  const explicitPool = mockPool([promotionRow({ promotionId: 286, explicitGroupMatch: 1, directMatch: 0 })]);
   const context = knownRow({ departmentCode: 2, sectionCode: 43, familyCode: 433, price: 36800 });
 
   assert.equal((await new SqlServerProductRepository({ pool: directPool }).findApplicablePromotions(context)).promotions.length, 1);
@@ -397,6 +397,118 @@ test('grupo dinámico evalúa el estado actual y descarta reglas no soportadas',
   const unsupportedResult = await new SqlServerProductRepository({ pool: unsupportedPool }).findApplicablePromotions(knownRow());
   assert.deepEqual(unsupportedResult.promotions, []);
   assert.deepEqual(unsupportedResult.conditionalPromotions, []);
+});
+
+test('286 no aparece por una rama dinámica compuesta solo por F', async () => {
+  const pool = mockPool([promotionRow({
+    promotionId: 286,
+    promotionDescription: '20% OFF NEW ARRIVAL ESCAZU CRI',
+    directMatch: 0,
+    explicitGroupMatch: 0,
+    promotionGroup: 251,
+    groupOr: 2,
+    groupAnd: 0,
+    includeRule: 'F',
+    conditionTable: 0,
+    conditionField: 'TEMPORADA',
+    conditionOperator: '=',
+    conditionValue: 'SUMMER 2025',
+    requestSerializedCoupon: 'T'
+  })]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow({ season: 'SPRING 2026' }));
+  assert.deepEqual(result.promotions, []);
+  assert.deepEqual(result.conditionalPromotions, []);
+});
+
+test('607 no aparece por sus ramas F ni por la alternativa contradictoria F/T', async () => {
+  const pool = mockPool([
+    promotionRow({
+      promotionId: 607,
+      promotionDescription: '20% OFF AERIE NEW ARRIVAL ESCAZU CRI',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 469,
+      groupOr: 2,
+      groupAnd: 0,
+      includeRule: 'F',
+      conditionTable: 0,
+      conditionField: 'DPTO',
+      conditionOperator: '=',
+      conditionValue: '3',
+      requestSerializedCoupon: 'T'
+    }),
+    promotionRow({
+      promotionId: 607,
+      promotionDescription: '20% OFF AERIE NEW ARRIVAL ESCAZU CRI',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 469,
+      groupOr: 1,
+      groupAnd: 0,
+      includeRule: 'F',
+      conditionTable: 0,
+      conditionField: 'DPTO',
+      conditionOperator: '=',
+      conditionValue: '3',
+      requestSerializedCoupon: 'T'
+    }),
+    promotionRow({
+      promotionId: 607,
+      promotionDescription: '20% OFF AERIE NEW ARRIVAL ESCAZU CRI',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 469,
+      groupOr: 1,
+      groupAnd: 0,
+      includeRule: 'T',
+      conditionTable: 0,
+      conditionField: 'DPTO',
+      conditionOperator: '=',
+      conditionValue: '3',
+      requestSerializedCoupon: 'T'
+    })
+  ]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow({ departmentCode: 3 }));
+  assert.deepEqual(result.promotions, []);
+  assert.deepEqual(result.conditionalPromotions, []);
+});
+
+test('una promoción comercial condicionada sigue funcionando con una inclusión T demostrable', async () => {
+  const pool = mockPool([
+    promotionRow({
+      promotionId: 286,
+      promotionDescription: '20% OFF NEW ARRIVAL ESCAZU CRI',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 251,
+      groupOr: 1,
+      groupAnd: 0,
+      includeRule: 'F',
+      conditionTable: 0,
+      conditionField: 'TEMPORADA',
+      conditionOperator: '=',
+      conditionValue: 'SPRING 2025',
+      requestSerializedCoupon: 'T'
+    }),
+    promotionRow({
+      promotionId: 286,
+      promotionDescription: '20% OFF NEW ARRIVAL ESCAZU CRI',
+      directMatch: 0,
+      explicitGroupMatch: 0,
+      promotionGroup: 251,
+      groupOr: 1,
+      groupAnd: 0,
+      includeRule: 'T',
+      conditionTable: 0,
+      conditionField: 'TEMPORADA',
+      conditionOperator: 'LIKE1',
+      conditionValue: '2026',
+      requestSerializedCoupon: 'T'
+    })
+  ]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow({ season: 'SPRING 2026' }));
+  assert.deepEqual(result.promotions, []);
+  assert.deepEqual(result.conditionalPromotions.map(promotion => promotion.id), [286]);
 });
 
 test('fecha vencida, tarifa/acción especial y precio base se manejan conservadoramente', async () => {
@@ -574,7 +686,7 @@ test('configura timeout y variables de conexión sin incluir secretos en SQL', (
   const repository = new SqlServerProductRepository({
     pool,
     env: {
-      DB_SERVER: 'db-host', DB_DATABASE: 'AEStore', DB_USER: 'reader', DB_PASSWORD: 'secret',
+      DB_SERVER: 'db-host', DB_DATABASE: 'AEStore', DB_USER: 'reader',
       DB_ENCRYPT: 'false', DB_TRUST_SERVER_CERTIFICATE: 'true', STORE_WAREHOUSE: 'V08', SALES_TARIFF_ID: '5', DB_REQUEST_TIMEOUT_MS: '3000'
     }
   });
@@ -585,6 +697,44 @@ test('configura timeout y variables de conexión sin incluir secretos en SQL', (
   assert.equal(repository.config.options.trustServerCertificate, true);
   return repository.findByBarcode('400281669321').then(() => {
     assert.equal(pool.calls[0].timeout, 3000);
-    assert.doesNotMatch(pool.calls[0].text, /secret/);
+    assert.doesNotMatch(pool.calls[0].text, /DB_PASSWORD|password=/i);
   });
+});
+
+test('todas las consultas dependientes de almacén usan V08 o V11 explícitamente', async () => {
+  const runWarehouseQueries = async warehouse => {
+    const pool = mockPool(...Array.from({ length: 11 }, () => []));
+    const repository = new SqlServerProductRepository({ pool, env: { STORE_WAREHOUSE: warehouse } });
+    await repository.findByBarcode('400281669321');
+    await repository.findByQuery('28166932');
+    await repository.findByReference('0433-1608-437');
+    await repository.findByStyle('1608');
+    await repository.searchProducts('1608');
+    await repository.getDepartments();
+    await repository.getSections('WOMEN');
+    await repository.getFamilies('WOMEN', 'WOMENS JEANS');
+    await repository.getProductsByCategory('WOMEN', 'WOMENS JEANS', 'HIGH-RISE JEGGING');
+    await repository.findSimilarProducts({ department: 'WOMEN', section: 'WOMENS JEANS', family: 'HIGH-RISE JEGGING', excludeReference: '0433-1608-437' });
+    await repository.findApplicablePromotions(knownRow());
+    return pool.calls;
+  };
+
+  for (const warehouse of ['V08', 'V11']) {
+    const calls = await runWarehouseQueries(warehouse);
+    assert.equal(calls.length, 11);
+    assert.ok(calls.every(call => call.params.warehouse === warehouse));
+  }
+});
+
+test('el runtime que exige almacén no acepta configuración faltante ni vuelve a V08', () => {
+  assert.throws(() => new SqlServerProductRepository({
+    pool: mockPool([]),
+    env: { DATA_SOURCE: 'sqlserver' },
+    requireWarehouse: true
+  }), /Warehouse is required/);
+  assert.throws(() => createProductRepository({
+    env: { DATA_SOURCE: 'sqlserver' },
+    requireWarehouse: true,
+    sqlRepositoryFactory: () => ({})
+  }), /Warehouse is required/);
 });

@@ -88,21 +88,40 @@ const groupsByAlternative = conditions => {
 export const evaluatePromotionGroup = (conditions, context) => {
   if (!Array.isArray(conditions) || conditions.length === 0) return false;
   for (const andGroups of groupsByAlternative(conditions).values()) {
+    const alternativeRows = [...andGroups.values()].flat();
+    const inclusionRows = alternativeRows.filter(condition => text(condition.INCLUIR).toUpperCase() === 'T');
+    if (!inclusionRows.length) continue;
+
+    const contradictory = alternativeRows.some((condition, index) => alternativeRows.some((other, otherIndex) => {
+      if (index >= otherIndex) return false;
+      const sameRule = [condition.TABLA, condition.CAMPO, condition.OPERADOR, condition.VALOR]
+        .map(value => text(value).toUpperCase())
+        .every((value, ruleIndex) => value === [other.TABLA, other.CAMPO, other.OPERADOR, other.VALOR]
+          .map(otherValue => text(otherValue).toUpperCase())[ruleIndex]);
+      return sameRule && text(condition.INCLUIR).toUpperCase() !== text(other.INCLUIR).toUpperCase();
+    }));
+    if (contradictory) continue;
+
     let alternativePasses = true;
+    let inclusionSatisfied = false;
     for (const rows of andGroups.values()) {
       const andPasses = rows.every(condition => {
         const comparison = compareCondition(condition, context);
         if (!comparison.supported) return false;
-        return text(condition.INCLUIR).toUpperCase() === 'F'
-          ? !comparison.matches
-          : text(condition.INCLUIR).toUpperCase() === 'T' && comparison.matches;
+        const includeRule = text(condition.INCLUIR).toUpperCase();
+        if (includeRule === 'T') {
+          if (comparison.matches) inclusionSatisfied = true;
+          return comparison.matches;
+        }
+        if (includeRule === 'F') return !comparison.matches;
+        return false;
       });
       if (!andPasses) {
         alternativePasses = false;
         break;
       }
     }
-    if (alternativePasses) return true;
+    if (alternativePasses && inclusionSatisfied) return true;
   }
   return false;
 };

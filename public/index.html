@@ -14,9 +14,42 @@
         <h1>AE Store Assistant</h1>
         <p class="subtitle">Consulta de inventario</p>
       </div>
-      <div class="status-dot" aria-label="Sistema listo"></div>
+      <div class="header-actions">
+        <span id="store-label" class="store-label">Tienda no configurada</span>
+        <button id="open-settings" class="settings-button" type="button">Configuración</button>
+        <div class="status-dot" aria-label="Sistema listo"></div>
+      </div>
     </header>
 
+    <section id="configuration-panel" class="configuration-panel" hidden aria-labelledby="configuration-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">AE STORE ASSISTANT</p>
+          <h2 id="configuration-title">Configuración inicial</h2>
+        </div>
+        <button id="cancel-settings" class="settings-button" type="button" hidden>Cancelar</button>
+      </div>
+      <form id="configuration-form" class="configuration-form">
+        <label>Servidor<input id="config-server" name="server" value="localhost" required></label>
+        <label>Puerto<input id="config-port" name="port" type="number" value="1433" required></label>
+        <label>Base de datos<input id="config-database" name="database" required></label>
+        <label>Usuario<input id="config-user" name="user" required></label>
+        <label>Contraseña<input id="config-password" name="password" type="password" autocomplete="new-password" required></label>
+        <label>Tarifa<input id="config-tariff" name="tariff" type="number" value="5" required></label>
+        <label>Formato de precio<input id="config-price-format" name="priceFormat" type="number" value="0" required></label>
+        <label>Tienda / almacén<select id="config-warehouse" name="warehouseCode" required disabled><option value="">Prueba la conexión primero</option></select></label>
+        <input id="config-warehouse-name" type="hidden" name="warehouseName">
+        <label class="configuration-checkbox"><input id="config-encrypt" name="encrypt" type="checkbox"> Cifrar conexión</label>
+        <label class="configuration-checkbox"><input id="config-trust" name="trustServerCertificate" type="checkbox" checked> Confiar en certificado local</label>
+        <div class="configuration-actions">
+          <button id="test-connection" class="secondary-button" type="button">Probar conexión</button>
+          <button id="save-configuration" class="primary-button" type="submit" disabled>Guardar y continuar</button>
+        </div>
+      </form>
+      <p id="configuration-message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <div id="assistant-content">
     <section class="search-panel" aria-labelledby="search-title">
       <div class="search-modes" role="tablist" aria-label="Ruta de consulta">
         <button class="mode-button is-active" type="button" data-mode="query" role="tab" aria-selected="true">Consultar producto</button>
@@ -45,6 +78,7 @@
     </section>
 
     <section id="result" aria-live="polite"></section>
+    </div>
   </main>
   <script src="app.js"></script>
 </body>

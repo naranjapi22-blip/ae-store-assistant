@@ -539,7 +539,8 @@ export class SqlServerProductRepository extends ProductRepository {
     poolFactory = null,
     env = process.env,
     config = sqlConfigFromEnv(env),
-    warehouse = env.STORE_WAREHOUSE || 'V08',
+    warehouse = null,
+    requireWarehouse = false,
     tariff = Number(env.SALES_TARIFF_ID || 5),
     priceFormat = env.SALES_PRICE_FORMAT ? Number(env.SALES_PRICE_FORMAT) : null,
     requestTimeoutMs = Number(env.DB_REQUEST_TIMEOUT_MS || config.requestTimeout || 3000)
@@ -552,7 +553,9 @@ export class SqlServerProductRepository extends ProductRepository {
       return connectionPool.connect();
     });
     this.config = config;
-    this.warehouse = warehouse;
+    const configuredWarehouse = clean(env.STORE_WAREHOUSE);
+    if (requireWarehouse && !configuredWarehouse) throw new Error('Warehouse is required for this runtime');
+    this.warehouse = clean(warehouse) || configuredWarehouse || 'V08';
     this.tariff = tariff;
     this.priceFormat = priceFormat;
     this.requestTimeoutMs = requestTimeoutMs;

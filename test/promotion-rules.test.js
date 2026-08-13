@@ -116,6 +116,42 @@ test('campo u operador no soportado produce falso negativo', () => {
   ], { DPTO: 2 }), false);
 });
 
+test('una alternativa solo con inclusiones F no hace elegible el grupo', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'TEMPORADA', OPERADOR: '=', VALOR: 'SUMMER 2025' }
+  ], { TEMPORADA: 'SPRING 2026' }), false);
+});
+
+test('una exclusión de temporada no hace elegible otro año', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'TEMPORADA', OPERADOR: '=', VALOR: 'SUMMER 2025' }
+  ], { TEMPORADA: 'SPRING 2024' }), false);
+});
+
+test('una inclusión T satisfecha puede hacer elegible la alternativa', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'TEMPORADA', OPERADOR: 'LIKE1', VALOR: '2026' }
+  ], { TEMPORADA: 'SPRING 2026' }), true);
+});
+
+test('una inclusión T satisfecha con una exclusión F que coincide queda vetada', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' },
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' }
+  ], { DPTO: 3 }), false);
+});
+
+test('una alternativa contradictoria F/T del mismo campo produce falso negativo', () => {
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' },
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' }
+  ], { DPTO: 3 }), false);
+  assert.equal(evaluatePromotionGroup([
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'F', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' },
+    { GRUPOOR: 0, GRUPOAND: 0, INCLUIR: 'T', TABLA: 0, CAMPO: 'DPTO', OPERADOR: '=', VALOR: '3' }
+  ], { DPTO: 2 }), false);
+});
+
 test('exclusiones explícitas por ID clasifican categorías conocidas', () => {
   assert.deepEqual(EXCLUDED_PROMOTION_CATEGORIES, {
     2: 'internal',

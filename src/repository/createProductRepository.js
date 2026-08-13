@@ -17,11 +17,15 @@ export function createProductRepository({
   env = process.env,
   projectRoot = process.cwd(),
   inventoryPath = null,
+  requireWarehouse = false,
   excelRepositoryFactory = filePath => new ExcelProductRepository(filePath),
   sqlRepositoryFactory = options => new SqlServerProductRepository(options)
 } = {}) {
   if (String(env.DATA_SOURCE || 'excel').trim().toLowerCase() === 'sqlserver') {
-    return sqlRepositoryFactory({ env });
+    if (requireWarehouse && !String(env.STORE_WAREHOUSE || '').trim()) {
+      throw new Error('Warehouse is required for this runtime');
+    }
+    return sqlRepositoryFactory({ env, requireWarehouse });
   }
 
   const filePath = inventoryPath || resolveInventoryPath({ env, projectRoot });

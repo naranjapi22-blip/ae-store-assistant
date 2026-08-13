@@ -5,11 +5,202 @@ const input = document.querySelector('#barcode');
 const clearButton = document.querySelector('#clear');
 const result = document.querySelector('#result');
 const message = document.querySelector('#message');
+const configurationPanel = document.querySelector('#configuration-panel');
+const assistantContent = document.querySelector('#assistant-content');
+const configurationForm = document.querySelector('#configuration-form');
+const configurationMessage = document.querySelector('#configuration-message');
+const openSettings = document.querySelector('#open-settings');
+const cancelSettings = document.querySelector('#cancel-settings');
+const warehouseSelect = document.querySelector('#config-warehouse');
+const saveConfiguration = document.querySelector('#save-configuration');
+const testConnection = document.querySelector('#test-connection');
+const statusDot = document.querySelector('.status-dot');
+let activeConfiguration = null;
+let connectionValidated = false;
 const modeButtons = document.querySelectorAll('[data-mode]');
 const catalogTools = document.querySelector('#catalog-tools');
 const catalogExplorer = document.querySelector('#catalog-explorer');
 let searchMode = 'query';
 const catalogSelection = { department: '', section: '', family: '' };
+
+const setConfigurationMessage = (text, type = '') => {
+  configurationMessage.textContent = text;
+  configurationMessage.className = `message ${type}`;
+};
+
+const connectionValidationMessage = 'Completa servidor, base de datos, usuario y contraseña.';
+const setConnectionState = state => {
+  statusDot.classList.remove('is-connected', 'is-error');
+  if (state === 'connected') statusDot.classList.add('is-connected');
+  if (state === 'error') statusDot.classList.add('is-error');
+  statusDot.dataset.connectionState = state;
+  statusDot.setAttribute('aria-label', state === 'connected' ? 'Conexión correcta' : state === 'error' ? 'Error de conexión' : 'Sin conexión');
+};
+
+const updateSaveButton = () => {
+  saveConfiguration.disabled = !(connectionValidated && warehouseSelect.value);
+};
+
+const clearWarehouseSelection = () => {
+  warehouseSelect.innerHTML = '<option value="">Prueba la conexión primero</option>';
+  warehouseSelect.value = '';
+  warehouseSelect.disabled = true;
+  document.querySelector('#config-warehouse-name').value = '';
+  updateSaveButton();
+};
+
+const invalidateConnection = () => {
+  connectionValidated = false;
+  setConnectionState('idle');
+  clearWarehouseSelection();
+};
+
+const configurationPayload = () => ({
+  server: document.querySelector('#config-server').value.trim(),
+  port: Number(document.querySelector('#config-port').value || 1433),
+  database: document.querySelector('#config-database').value.trim(),
+  user: document.querySelector('#config-user').value.trim(),
+  password: document.querySelector('#config-password').value,
+  tariff: Number(document.querySelector('#config-tariff').value || 5),
+  priceFormat: Number(document.querySelector('#config-price-format').value || 0),
+  warehouseCode: warehouseSelect.value,
+  warehouseName: document.querySelector('#config-warehouse-name').value,
+  encrypt: document.querySelector('#config-encrypt').checked,
+  trustServerCertificate: document.querySelector('#config-trust').checked
+});
+
+const setConfigurationFields = config => {
+  if (!config) return;
+  document.querySelector('#config-server').value = config.server || 'localhost';
+  document.querySelector('#config-port').value = config.port || 1433;
+  document.querySelector('#config-database').value = config.database || '';
+  document.querySelector('#config-user').value = '';
+  document.querySelector('#config-password').value = '';
+  document.querySelector('#config-tariff').value = config.tariff || 5;
+  document.querySelector('#config-price-format').value = config.priceFormat ?? 0;
+  document.querySelector('#config-encrypt').checked = Boolean(config.encrypt);
+  document.querySelector('#config-trust').checked = Boolean(config.trustServerCertificate);
+  document.querySelector('#config-warehouse-name').value = config.warehouseName || '';
+};
+
+const populateWarehouses = warehouses => {
+  const salesWarehouses = warehouses.filter(item => item.isLikelySales !== false);
+  const selectableWarehouses = salesWarehouses.length ? salesWarehouses : warehouses;
+  warehouseSelect.innerHTML = selectableWarehouses.length
+    ? ['<option value="">Selecciona una tienda</option>', ...selectableWarehouses.map(item => `<option value="${escapeHtml(item.warehouseCode)}">${escapeHtml(item.warehouseName)} (${escapeHtml(item.warehouseCode)})</option>`)].join('')
+    : '<option value="">No hay almacenes disponibles</option>';
+  warehouseSelect.disabled = !warehouses.length;
+  if (activeConfiguration?.warehouseCode && selectableWarehouses.some(item => item.warehouseCode === activeConfiguration.warehouseCode)) warehouseSelect.value = activeConfiguration.warehouseCode;
+  document.querySelector('#config-warehouse-name').value = selectableWarehouses.find(item => item.warehouseCode === warehouseSelect.value)?.warehouseName || '';
+  updateSaveButton();
+};
+
+const showConfiguration = (config = activeConfiguration) => {
+  setConfigurationFields(config);
+  configurationPanel.hidden = false;
+  assistantContent.hidden = true;
+  cancelSettings.hidden = !activeConfiguration?.configured;
+  setConfigurationMessage(activeConfiguration?.configured ? '' : 'Configura la conexión para comenzar.');
+};
+
+const hideConfiguration = () => {
+  configurationPanel.hidden = true;
+  assistantContent.hidden = false;
+};
+
+const updateStoreLabel = config => {
+  const name = config?.warehouseName || config?.warehouseCode;
+  document.querySelector('#store-label').textContent = name ? `${name} (${config.warehouseCode})` : 'Tienda no configurada';
+};
+
+const configurationRequest = async (url, payload) => {
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'No se pudo validar la configuración');
+  return data;
+};
+
+testConnection.addEventListener('click', async () => {
+  const payload = configurationPayload();
+  const complete = Boolean(payload.server && Number.isInteger(payload.port) && payload.port > 0 && payload.database && payload.user && payload.password);
+  if (!complete) {
+    setConnectionState('idle');
+    setConfigurationMessage(connectionValidationMessage, 'is-error');
+    return;
+  }
+  connectionValidated = false;
+  clearWarehouseSelection();
+  setConnectionState('idle');
+  testConnection.disabled = true;
+  setConfigurationMessage('Probando conexión…', 'is-loading');
+  try {
+    const data = await configurationRequest('/api/config/test', payload);
+    activeConfiguration = { ...(data.config || {}), configured: false };
+    connectionValidated = true;
+    populateWarehouses(data.warehouses || []);
+    setConnectionState('connected');
+    setConfigurationMessage('Conexión correcta. Selecciona una tienda.', 'is-success');
+  } catch (error) {
+    connectionValidated = false;
+    setConnectionState('error');
+    setConfigurationMessage(error.message || 'No se pudo conectar al servidor', 'is-error');
+  } finally {
+    testConnection.disabled = false;
+    updateSaveButton();
+  }
+});
+
+configurationForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!connectionValidated) {
+    setConfigurationMessage('Prueba la conexión antes de guardar.', 'is-error');
+    return;
+  }
+  if (!warehouseSelect.value) {
+    setConfigurationMessage('Selecciona una tienda.', 'is-error');
+    return;
+  }
+  saveConfiguration.disabled = true;
+  setConfigurationMessage('Guardando configuración…', 'is-loading');
+  try {
+    const data = await configurationRequest('/api/config/save', configurationPayload());
+    activeConfiguration = data.config;
+    updateStoreLabel(activeConfiguration);
+    hideConfiguration();
+    setMessage('Configuración guardada', 'is-success');
+  } catch (error) {
+    setConfigurationMessage(error.message || 'No se pudo guardar la configuración', 'is-error');
+    saveConfiguration.disabled = false;
+  }
+});
+
+warehouseSelect.addEventListener('change', () => {
+  document.querySelector('#config-warehouse-name').value = warehouseSelect.selectedOptions[0]?.textContent.replace(/\s*\([^)]*\)$/, '') || '';
+  updateSaveButton();
+});
+
+['#config-server', '#config-port', '#config-database', '#config-user', '#config-password', '#config-encrypt', '#config-trust']
+  .map(selector => document.querySelector(selector))
+  .forEach(field => field.addEventListener('input', invalidateConnection));
+['#config-encrypt', '#config-trust']
+  .map(selector => document.querySelector(selector))
+  .forEach(field => field.addEventListener('change', invalidateConnection));
+
+openSettings.addEventListener('click', () => showConfiguration());
+cancelSettings.addEventListener('click', hideConfiguration);
+
+const initializeConfiguration = async () => {
+  try {
+    const response = await fetch('/api/config/status');
+    const config = await response.json();
+    activeConfiguration = config;
+    updateStoreLabel(config);
+    if (!config.configured) showConfiguration(config);
+  } catch {
+    showConfiguration();
+    setConfigurationMessage('No se pudo cargar la configuración local.', 'is-error');
+  }
+};
 
 const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = `message ${type}`; };
@@ -258,3 +449,5 @@ form.addEventListener('submit', async event => {
 });
 
 setMessage('Listo para consultar');
+setConnectionState('idle');
+initializeConfiguration();

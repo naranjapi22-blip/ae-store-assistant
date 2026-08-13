@@ -2,4 +2,9 @@
 *.xlsx
 node_modules/
 .env
+.env.*
+!.env.example
+out/
+packages/
+.packager-diagnostic/
 
