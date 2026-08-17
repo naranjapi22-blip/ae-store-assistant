@@ -6,9 +6,6 @@ import { readFile } from 'node:fs/promises';
 import { createProductRepository } from './repository/createProductRepository.js';
 import { ProductService } from './service/ProductService.js';
 import { productApi } from './api/productApi.js';
-import { vsProductApi } from './api/vsProductApi.js';
-import { VsExcelProductRepository } from './repository/VsExcelProductRepository.js';
-import { VsProductService } from './service/VsProductService.js';
 import { loadEnvironment, configFromEnv, envFromConfig, isConnectionConfig, isUsableConfig, publicConfig } from './config/environment.js';
 import { SqlServerWarehouseRepository, testSqlConnection, testSqlConnectionHealth } from './repository/SqlServerWarehouseRepository.js';
 import { WarehouseService } from './service/WarehouseService.js';
@@ -90,18 +87,6 @@ export const createApplicationServer = ({
   let warehouseRepository = null;
   let warehouseService = null;
   let validatedConnectionKey = null;
-  const vsStockPath = [
-    runtimeEnv.VS_STOCK_FILE,
-    path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'Stock de Histria Julio.xlsx')
-  ].filter(Boolean).map(file => path.isAbsolute(file) ? file : path.resolve(configuredProjectRoot, file)).find(existsSync);
-  const vsCoveragePath = [
-    runtimeEnv.VS_IMAGE_COVERAGE_FILE,
-    path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'resultado_cobertura_visual.xlsx')
-  ].filter(Boolean).map(file => path.isAbsolute(file) ? file : path.resolve(configuredProjectRoot, file)).find(existsSync);
-  const vsService = vsStockPath
-    ? new VsProductService(new VsExcelProductRepository(vsStockPath, { imageCoverageFilePath: vsCoveragePath }))
-    : null;
-
   const closeRepository = async () => {
     if (repository?.close) await repository.close();
     if (warehouseRepository?.close) await warehouseRepository.close();
@@ -141,7 +126,10 @@ export const createApplicationServer = ({
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/api/config/status' && request.method === 'GET') {
       response.writeHead(200, jsonHeaders);
-      return response.end(JSON.stringify({ ...currentConfig(), connection: service ? 'ready' : 'not_configured' }));
+      return response.end(JSON.stringify({
+        ...currentConfig(),
+        connection: service ? 'ready' : 'not_configured'
+      }));
     }
     if (pathname === '/api/config/health' && request.method === 'GET') {
       const config = configFromEnv(runtimeEnv);
@@ -215,10 +203,6 @@ export const createApplicationServer = ({
   };
 
   const server = http.createServer(async (request, response) => {
-    if (request.url.startsWith('/api/vs/')) {
-      if (!vsService) { response.writeHead(503, jsonHeaders); return response.end(JSON.stringify({ error: 'Fuente VS no configurada' })); }
-      return vsProductApi(vsService)(request, response);
-    }
     if (request.url.startsWith('/api/config') || request.url === '/api/warehouses') {
       if (await configurationApi(request, response)) return;
     }

@@ -41,7 +41,8 @@ export class VsExcelProductRepository extends ProductRepository {
     }
     this.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
     this.barcodesIndexed = this.byBarcode.size;
-    console.log(`VS Excel cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes indexados`);
+    this.reliableImagesLoaded = this.imagesByBarcode.size;
+    console.log(`VS Excel cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes indexados; ${this.reliableImagesLoaded} imágenes confiables`);
   }
 
   readStock(filePath) {
@@ -76,12 +77,13 @@ export class VsExcelProductRepository extends ProductRepository {
   readCoverage(filePath) {
     if (!filePath) return;
     const workbook = XLSX.readFile(filePath, { raw: true, cellDates: false });
-    const sheet = workbook.Sheets.Barcode ?? workbook.Sheets.Barcodes ?? workbook.Sheets[workbook.SheetNames[0]];
+    const sheet = workbook.Sheets.Dataset;
+    if (!sheet) throw new Error('No se encontrÃ³ la hoja Dataset en el archivo de cobertura VS');
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
     for (const row of rows) {
       const barcode = clean(row.CODBARRAS);
-      const url = clean(row.imagen_visual_final_url);
-      if (barcode && isUrl(url)) this.imagesByBarcode.set(barcode, url);
+      const url = clean(row.image_url_confiable);
+      if (barcode && keyPart(row.confidence) === 'alta' && isUrl(url)) this.imagesByBarcode.set(barcode, url);
       if (barcode) this.metadataByBarcode.set(barcode, {
         genericId: clean(row.genericId), choiceValue: clean(row.choiceValue), name: clean(row.name),
         productId: clean(row.productId), eventId: clean(row.eventId)
@@ -89,28 +91,26 @@ export class VsExcelProductRepository extends ProductRepository {
     }
   }
 
-  imageFor(row, groupRows = []) {
-    if (this.imagesByBarcode.has(row.CODBARRAS)) return this.imagesByBarcode.get(row.CODBARRAS);
-    const urls = [...new Set(groupRows.map(item => this.imagesByBarcode.get(item.CODBARRAS)).filter(Boolean))];
-    return urls.length === 1 ? urls[0] : null;
+  imageFor(row) {
+    return this.imagesByBarcode.get(row.CODBARRAS) ?? null;
   }
 
-  toPublicRow(row, groupRows = []) {
-    return { ...row, image: this.imageFor(row, groupRows) };
+  toPublicRow(row) {
+    return { ...row, image: this.imageFor(row) };
   }
 
   async findByBarcode(barcode) {
     const started = performance.now();
     const row = this.byBarcode.get(clean(barcode)) ?? null;
     this.lastLookupMs = Math.round((performance.now() - started) * 1000) / 1000;
-    return row ? this.toPublicRow(row, this.byVisualGroup.get(row.visualGroupKey) ?? []) : null;
+    return row ? this.toPublicRow(row) : null;
   }
 
   async findByIdentity(identityKey) {
-    return (this.byIdentity.get(identityKey) ?? []).map(row => this.toPublicRow(row, this.byVisualGroup.get(row.visualGroupKey) ?? []));
+    return (this.byIdentity.get(identityKey) ?? []).map(row => this.toPublicRow(row));
   }
 
   metrics() {
-    return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed, lastLookupMs: this.lastLookupMs ?? null };
+    return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed, reliableImagesLoaded: this.reliableImagesLoaded, lastLookupMs: this.lastLookupMs ?? null };
   }
 }

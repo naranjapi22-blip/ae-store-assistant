@@ -29,32 +29,49 @@ test('VS repository indexes barcodes, groups sizes, images, and hides costs', as
     const coverage = path.join(dir, 'coverage.xlsx');
     writeBook(stock, rows, 'Hoja1');
     writeBook(coverage, [
-      { CODBARRAS: '199294268699', imagen_visual_final_url: '', genericId: 'g1', choiceValue: 'c1' },
-      { CODBARRAS: '199294304984', imagen_visual_final_url: 'https://example.test/vs.jpg', genericId: 'g1', choiceValue: 'c1' },
-      { CODBARRAS: '199294399999', imagen_visual_final_url: '', genericId: 'g1', choiceValue: 'c1' }
-    ], 'Barcodes');
+      { CODBARRAS: '199294268699', confidence: 'MEDIA', image_url_confiable: 'https://example.test/media.jpg', genericId: 'g1', choiceValue: 'c1' },
+      { CODBARRAS: '199294304984', confidence: 'ALTA', image_url_confiable: 'https://example.test/vs.jpg', genericId: 'g1', choiceValue: 'c1' },
+      { CODBARRAS: '199294399999', confidence: 'BAJA', image_url_confiable: 'https://example.test/low.jpg', genericId: 'g1', choiceValue: 'c1' }
+    ], 'Dataset');
     const repository = new VsExcelProductRepository(stock, { imageCoverageFilePath: coverage });
     const service = new VsProductService(repository);
     const product = await service.getProductByBarcode('199294268699');
     assert.equal(product.description, 'LOUNGE');
     assert.equal(product.stock, 1);
-    assert.equal(product.image, 'https://example.test/vs.jpg');
+    assert.equal(product.image, null);
     assert.deepEqual(product.sizes.map(item => item.size), ['XS', 'MED']);
     assert.equal(Object.hasOwn(product, 'COSTESTOCK'), false);
     assert.equal(Object.hasOwn(product, 'COSTO_TOTAL'), false);
     assert.equal(await service.getProductByBarcode('does-not-exist'), null);
     assert.equal(repository.metrics().barcodesIndexed, 4);
     assert.equal(typeof repository.metrics().loadTimeMs, 'number');
+    assert.equal(repository.metrics().reliableImagesLoaded, 1);
+    assert.equal((await service.getProductByBarcode('199294304984')).image, 'https://example.test/vs.jpg');
+    assert.equal((await service.getProductByBarcode('199294399999')).image, null);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 const realStock = path.resolve('..', 'VSImageTest', 'Stock de Histria Julio.xlsx');
-const realCoverage = path.resolve('..', 'VSImageTest', 'resultado_cobertura_visual.xlsx');
+const realCoverage = path.resolve('..', 'VSImageTest', 'resultado_imagenes_confiables.xlsx');
 
 test('el Excel real solo indexa los 2638 barcodes vendibles', { skip: !existsSync(realStock) }, async () => {
   const repository = new VsExcelProductRepository(realStock, { imageCoverageFilePath: realCoverage });
   assert.equal(repository.metrics().barcodesIndexed, 2638);
+  assert.equal(repository.metrics().reliableImagesLoaded, 346);
   assert.equal(await repository.findByBarcode('198765087685'), null);
+});
+
+test('solo imágenes ALTA se exponen en el dataset real', { skip: !existsSync(realStock) || !existsSync(realCoverage) }, async () => {
+  const repository = new VsExcelProductRepository(realStock, { imageCoverageFilePath: realCoverage });
+  const service = new VsProductService(repository);
+  const high = await service.getProductByBarcode('197575195825');
+  const sugarHigh = await service.getProductByBarcode('667555917612');
+  const electricPunch = await service.getProductByBarcode('667555917681');
+  assert.match(high.image, /^https?:\/\//);
+  assert.equal(sugarHigh.image, null);
+  assert.equal(electricPunch.image, null);
+  assert.equal(Object.hasOwn(sugarHigh, 'COSTESTOCK'), false);
+  assert.equal(Object.hasOwn(sugarHigh, 'COSTO_TOTAL'), false);
 });
 
 test('genericId + choiceValue permite tallas cuando existe y evita inferencias cuando falta', { skip: !existsSync(realStock) || !existsSync(realCoverage) }, async () => {

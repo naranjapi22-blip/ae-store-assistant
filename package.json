@@ -12,6 +12,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
+    "start:aeo": "node src/server.js",
+    "start:vs": "node src/vsServer.js",
     "test": "node --test",
     "desktop": "electron-forge start",
     "make": "electron-forge make"
