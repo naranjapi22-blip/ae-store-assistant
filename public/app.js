@@ -343,12 +343,12 @@ const loadSimilarProducts = async reference => {
 const setMode = mode => {
   searchMode = mode;
   modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
-  const querying = mode === 'query';
+  const querying = mode !== 'catalog';
   document.querySelector('#search-title').textContent = querying ? 'Consultar producto' : 'Explorar catálogo';
   input.placeholder = 'Escanee o ingrese código, referencia o STYLE';
   form.querySelector('.primary-button').textContent = 'Consultar';
   catalogTools.hidden = mode !== 'catalog';
-  form.hidden = !querying;
+  form.hidden = mode === 'catalog';
   catalogExplorer.hidden = querying;
   if (querying) focusScanner();
   else { result.innerHTML = ''; loadDepartments(); }
@@ -434,6 +434,17 @@ const renderProduct = data => {
   loadSimilarProducts(data.REFERENCIA_STYLO);
 };
 
+const renderVsProduct = data => {
+  const visual = data.image
+    ? `<img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}"><div class="image-placeholder" hidden><span class="placeholder-mark">VS</span><span>Imagen no disponible</span></div>`
+    : '<div class="image-placeholder"><span class="placeholder-mark">VS</span><span>Imagen no disponible</span></div>';
+  const sizes = (data.sizes || []).map(item => `<li><strong>${escapeHtml(item.size || 'Sin talla')}</strong><span>Stock: ${escapeHtml(item.stock)}</span>${item.size === data.scannedSize ? '<em>Escaneada</em>' : ''}</li>`).join('');
+  const sizeNote = data.sizes?.length > 1 ? '' : '<p class="vs-size-note">No hay una identidad producto/color confiable para inferir otras tallas.</p>';
+  result.innerHTML = `<article class="vs-product-card"><div class="vs-image">${visual}</div><div class="vs-copy"><p class="eyebrow">VICTORIA'S SECRET · POC</p><h2>${escapeHtml(data.description)}</h2><dl><dt>REFPROVEEDOR</dt><dd>${escapeHtml(data.supplierReference || 'No disponible')}</dd><dt>COLOR</dt><dd>${escapeHtml(data.color || 'No disponible')}</dd><dt>TALLA ESCANEADA</dt><dd>${escapeHtml(data.scannedSize || 'No disponible')}</dd><dt>STOCK EXACTO</dt><dd>${escapeHtml(data.stock)}</dd><dt>TEMPORADA</dt><dd>${escapeHtml(data.season || 'No disponible')}</dd><dt>DEPARTAMENTO</dt><dd>${escapeHtml(data.department || 'No disponible')}</dd><dt>SECCIÓN</dt><dd>${escapeHtml(data.section || 'No disponible')}</dd><dt>FAMILIA</dt><dd>${escapeHtml(data.family || 'No disponible')}</dd></dl><h3>Otras tallas disponibles</h3>${sizeNote}<ul class="vs-sizes">${sizes || '<li>No hay tallas relacionadas</li>'}</ul></div></article>`;
+  const image = result.querySelector('.vs-image img');
+  image?.addEventListener('error', () => { image.hidden = true; image.nextElementSibling.hidden = false; });
+};
+
 const loadReference = async reference => {
   if (!reference || form.classList.contains('is-loading')) return;
   setLoading(true); setMessage('Consultando…', 'is-loading');
@@ -455,10 +466,12 @@ form.addEventListener('submit', async event => {
   if (!barcode || form.classList.contains('is-loading')) return;
   setLoading(true); setMessage('Consultando…', 'is-loading'); result.innerHTML = '';
   try {
-    const response = await fetch(`/api/products/${encodeURIComponent(barcode)}`);
+    const endpoint = searchMode === 'vs' ? `/api/vs/products/${encodeURIComponent(barcode)}` : `/api/products/${encodeURIComponent(barcode)}`;
+    const response = await fetch(endpoint);
     const data = await response.json();
     if (!response.ok) throw new Error(response.status === 404 ? 'No se encontró ningún producto.' : (data.error || 'Error de consulta'));
-    if (data.results) { renderSearchResults(data); setMessage(`${data.results.length} referencias encontradas`, 'is-success'); }
+    if (searchMode === 'vs') { renderVsProduct(data); setMessage('Producto VS encontrado', 'is-success'); }
+    else if (data.results) { renderSearchResults(data); setMessage(`${data.results.length} referencias encontradas`, 'is-success'); }
     else { renderProduct(data); setMessage('Producto encontrado', 'is-success'); }
   } catch (error) { result.innerHTML = `<div class="empty-state error-state"><span class="state-icon">!</span><h2>${escapeHtml(error.message || 'Error de consulta')}</h2><p>Verifica el valor e inténtalo nuevamente.</p></div>`; setMessage('No se pudo completar la consulta', 'is-error'); }
   finally { setLoading(false); focusScanner(); }
