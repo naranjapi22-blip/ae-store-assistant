@@ -80,6 +80,7 @@ export class VsExcelProductRepository extends ProductRepository {
       if (row.styleColorKey) this.byStyleColor.set(row.styleColorKey, [...(this.byStyleColor.get(row.styleColorKey) ?? []), row]);
       if (row.identityKey) this.byIdentity.set(row.identityKey, [...(this.byIdentity.get(row.identityKey) ?? []), row]);
     }
+    this.catalogGroups = this.buildCatalogGroups();
     this.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
     this.barcodesIndexed = this.byBarcode.size;
     this.currentImagesLoaded = this.imagesByBarcode.size;
@@ -198,6 +199,57 @@ export class VsExcelProductRepository extends ProductRepository {
   async findByIdentity(identityKey) { return (this.byIdentity.get(identityKey) ?? []).map(row => this.toPublicRow(row)); }
   async findByStyle(style) { return (this.byStyle.get(keyPart(style)) ?? []).map(row => this.toPublicRow(row)); }
   async findByStyleColor(style, color) { return (this.byStyleColor.get(`${keyPart(style)}|${keyPart(color)}`) ?? []).map(row => this.toPublicRow(row)); }
+
+  buildCatalogGroups() {
+    const grouped = new Map();
+    for (const row of this.rows) {
+      const key = isValidStyle(row.STYLE) && isValidColor(row.COLOR)
+        ? `style-color:${keyPart(row.STYLE)}|${keyPart(row.COLOR)}`
+        : `barcode:${row.CODBARRAS}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), row]);
+    }
+    return [...grouped.values()].map(rows => {
+      const resolved = rows.map(row => ({ row, ...this.toPublicRow(row) }));
+      const representative = [...resolved].sort((left, right) => {
+        const imageOrder = Number(Boolean(right.image)) - Number(Boolean(left.image));
+        return imageOrder || clean(left.CODBARRAS).localeCompare(clean(right.CODBARRAS));
+      })[0];
+      const sizes = new Set(rows.map(row => clean(row.TALLA)).filter(Boolean));
+      return {
+        barcode: representative.CODBARRAS,
+        image: representative.image ?? null,
+        description: representative.DESCRIPCION,
+        style: representative.STYLE,
+        stylo: representative.STYLO,
+        color: representative.COLOR,
+        stock: rows.reduce((total, row) => total + Number(row.STOCK ?? 0), 0),
+        availableSizes: sizes.size,
+        supplierReference: representative.REFPROVEEDOR,
+        department: representative.departamento,
+        section: representative.seccion,
+        family: representative.familia
+      };
+    }).sort((left, right) => `${left.style}|${left.color}|${left.barcode}`.localeCompare(`${right.style}|${right.color}|${right.barcode}`));
+  }
+
+  searchCatalog({ query = '', department = '', section = '', family = '', offset = 0, limit = 50 } = {}) {
+    const q = keyPart(query);
+    const matches = this.catalogGroups.filter(item => {
+      const searchable = [item.description, item.style, item.color, item.barcode, item.supplierReference].map(keyPart).join('|');
+      return (!q || searchable.includes(q))
+        && (!department || keyPart(item.department) === keyPart(department))
+        && (!section || keyPart(item.section) === keyPart(section))
+        && (!family || keyPart(item.family) === keyPart(family));
+    });
+    const start = Math.max(0, Number(offset) || 0);
+    const pageSize = Math.min(100, Math.max(1, Number(limit) || 50));
+    return { items: matches.slice(start, start + pageSize), total: matches.length, offset: start, limit: pageSize, hasMore: start + pageSize < matches.length };
+  }
+
+  catalogFacets() {
+    const values = field => [...new Set(this.catalogGroups.map(item => clean(item[field])).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+    return { departments: values('department'), sections: values('section'), families: values('family') };
+  }
 
   metrics() {
     return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed,

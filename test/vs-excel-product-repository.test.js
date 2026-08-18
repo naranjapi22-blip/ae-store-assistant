@@ -87,8 +87,45 @@ test('VS producto existente sin imagen devuelve datos y STYLE vacío no agrupa',
   const emptyStyle = repository.rows.find(row => !row.STYLE); assert.ok(emptyStyle); const emptyProduct = await service.getProductByBarcode(emptyStyle.CODBARRAS); assert.deepEqual(emptyProduct.relatedColors, []);
 });
 
+test('cada talla VS tiene barcode, selected cambia stock/producto y conserva STYLE+COLOR', { skip: !realReady }, async () => {
+  const repository = new VsExcelProductRepository(realStock, { imageCatalogFilePath: realCatalog, historicalImageFilePath: realHistorical, styleColorImageFilePath: realStyleColor }); const service = new VsProductService(repository);
+  const original = await service.getProductByBarcode('667559465928'); const other = original.sizes.find(size => !size.selected);
+  assert.equal(original.sizes.length, 6); assert.ok(original.sizes.every(size => size.barcode && size.stock > 0)); assert.equal(original.sizes.filter(size => size.scanned).length, 1); assert.equal(original.sizes.filter(size => size.selected).length, 1);
+  const changed = await service.getProductByBarcode(other.barcode, { scannedBarcode: original.scannedBarcode });
+  assert.equal(changed.style, original.style); assert.equal(changed.color, original.color); assert.equal(changed.barcode, other.barcode); assert.equal(changed.selectedSize, other.size); assert.equal(changed.stock, other.stock); assert.equal(changed.sizes.filter(size => size.selected).length, 1); assert.equal(changed.sizes.find(size => size.selected).barcode, other.barcode); assert.equal(changed.sizes.filter(size => size.scanned).length, 1);
+});
+
+test('cambiar COLOR reconstruye tallas y no arrastra scanned fuera del grupo', { skip: !realReady }, async () => {
+  const repository = new VsExcelProductRepository(realStock, { imageCatalogFilePath: realCatalog, historicalImageFilePath: realHistorical, styleColorImageFilePath: realStyleColor }); const service = new VsProductService(repository);
+  const candidate = [...repository.byStyle.entries()].map(([style, rows]) => ({ style, rows, colors: new Set(rows.map(row => row.COLOR).filter(Boolean)) })).find(item => item.colors.size > 1); assert.ok(candidate);
+  const originalBarcode = candidate.rows[0].CODBARRAS; const original = await service.getProductByBarcode(originalBarcode); const related = original.relatedColors[0]; assert.ok(related?.barcode);
+  const changedColor = await service.getProductByBarcode(related.barcode, { scannedBarcode: originalBarcode });
+  assert.equal(changedColor.style, original.style); assert.notEqual(changedColor.color, original.color); assert.equal(changedColor.sizes.filter(size => size.selected).length, 1); assert.equal(changedColor.sizes.filter(size => size.scanned).length, 0); assert.ok(changedColor.sizes.every(size => size.stock > 0));
+  const nextSize = changedColor.sizes.find(size => !size.selected); if (nextSize) { const changedColorSize = await service.getProductByBarcode(nextSize.barcode, { scannedBarcode: originalBarcode }); assert.equal(changedColorSize.color, changedColor.color); assert.equal(changedColorSize.selectedSize, nextSize.size); assert.equal(changedColorSize.stock, nextSize.stock); }
+});
+
+test('talla de producto sin imagen continúa siendo seleccionable', { skip: !realReady }, async () => {
+  const repository = new VsExcelProductRepository(realStock, { imageCatalogFilePath: realCatalog, historicalImageFilePath: realHistorical, styleColorImageFilePath: realStyleColor }); const service = new VsProductService(repository);
+  const catalog = JSON.parse(await readFile(realCatalog, 'utf8')).results; const historical = new Set(JSON.parse(await readFile(realHistorical, 'utf8')).results.filter(row => row.clasificacion === 'HISTORICA_RECUPERADA').map(row => row.barcode)); const styleColor = new Set(JSON.parse(await readFile(realStyleColor, 'utf8')).results.filter(row => row.clasificacion === 'STYLE_COLOR_RECUPERADO').map(row => row.barcode)); const noImage = catalog.find(row => row.clasificacion !== 'MATCH_COLOR_ACTUAL' && !historical.has(row.barcode) && !styleColor.has(row.barcode));
+  const product = await service.getProductByBarcode(noImage.barcode); const selectable = product.sizes.find(size => size.barcode); const selected = await service.getProductByBarcode(selectable.barcode, { scannedBarcode: product.scannedBarcode });
+  assert.equal(selected.image, null); assert.equal(selected.barcode, selectable.barcode); assert.ok(selected.stock > 0); assert.equal(selected.sizes.filter(size => size.selected).length, 1);
+});
+
+test('Explorar catálogo agrupa STYLE+COLOR, filtra, pagina y abre el detalle normal', { skip: !realReady }, async () => {
+  const repository = new VsExcelProductRepository(realStock, { imageCatalogFilePath: realCatalog, historicalImageFilePath: realHistorical, styleColorImageFilePath: realStyleColor }); const service = new VsProductService(repository);
+  const firstPage = service.searchCatalog({ limit: 50 }); assert.equal(firstPage.items.length, 50); assert.ok(firstPage.total > 50); assert.equal(firstPage.facets.departments.length > 0, true);
+  const pageTwo = service.searchCatalog({ offset: 50, limit: 50 }); assert.equal(pageTwo.items.length, 50); assert.notEqual(pageTwo.items[0].barcode, firstPage.items[0].barcode);
+  const grouped = [...repository.byStyle.entries()].map(([style, rows]) => ({ style, rows, colors: new Set(rows.map(row => row.COLOR).filter(Boolean)) })).find(item => item.rows.length > 1 && item.colors.size > 0); assert.ok(grouped);
+  const color = grouped.rows[0].COLOR; const card = repository.catalogGroups.find(item => item.style === grouped.style && item.color === color); assert.ok(card); assert.equal(card.availableSizes, new Set(grouped.rows.filter(row => row.COLOR === color).map(row => row.TALLA)).size); assert.equal(card.stock, grouped.rows.filter(row => row.COLOR === color).reduce((total, row) => total + row.STOCK, 0));
+  const imageGroup = repository.catalogGroups.find(item => item.style && item.image); assert.ok(imageGroup); const imageRows = repository.rows.filter(row => row.STYLE === imageGroup.style && row.COLOR === imageGroup.color); assert.ok(imageRows.some(row => repository.imageFor(row).image === imageGroup.image));
+  const noImageGroup = repository.catalogGroups.find(item => !item.image); assert.ok(noImageGroup); assert.ok(service.searchCatalog({ query: noImageGroup.description }).items.some(item => item.barcode === noImageGroup.barcode));
+  assert.ok(service.searchCatalog({ query: imageGroup.style }).items.some(item => item.style === imageGroup.style)); assert.ok(service.searchCatalog({ department: imageGroup.department }).items.every(item => item.department === imageGroup.department));
+  const detail = await service.getProductByBarcode(card.barcode); assert.ok(detail); assert.equal(detail.style, card.style); assert.equal(detail.color, card.color);
+});
+
 test('VS API returns product and 404 for unknown barcode', async () => {
-  const api = vsProductApi({ getProductByBarcode: async barcode => barcode === '123' ? { barcode } : null });
+  const api = vsProductApi({ getProductByBarcode: async barcode => barcode === '123' ? { barcode } : null, searchCatalog: () => ({ items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [] } }) });
   const call = async url => { const result = { status: null, body: '' }; const response = { writeHead(status) { result.status = status; }, setHeader() {}, end(body = '') { result.body = body; } }; await api({ url }, response); return { ...result, json: JSON.parse(result.body) }; };
   assert.equal((await call('/api/vs/products/123')).status, 200); assert.equal((await call('/api/vs/products/999')).status, 404);
+  assert.deepEqual(await call('/api/vs/catalog?q=bras'), { status: 200, body: '{"items":[{"barcode":"123"}],"total":1,"offset":0,"limit":50,"hasMore":false,"facets":{"departments":[],"sections":[],"families":[]}}', json: { items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [] } } });
 });

@@ -27,26 +27,38 @@ export class VsProductService {
     return this.repository.findByStyleColor(row.STYLE, row.COLOR);
   }
 
-  buildSizes(variants, selectedBarcode) {
+  buildSizes(variants, { selectedBarcode = '', scannedBarcode = '' } = {}) {
     const bySize = new Map();
     for (const item of variants) {
       const stock = Number(item.STOCK ?? 0);
       if (stock <= 0) continue;
       const size = clean(item.TALLA) || 'Sin talla';
-      const current = bySize.get(size);
-      if (current) {
-        current.stock += stock;
-        current.scanned ||= item.CODBARRAS === selectedBarcode;
-        if (!current.barcode && item.CODBARRAS) current.barcode = item.CODBARRAS;
-      } else bySize.set(size, {
-        size,
-        stock,
-        barcode: item.CODBARRAS,
-        image: item.image ?? null,
-        scanned: item.CODBARRAS === selectedBarcode
-      });
+      bySize.set(size, [...(bySize.get(size) ?? []), item]);
     }
-    return [...bySize.values()].sort((left, right) => compareSizes(left.size, right.size));
+    return [...bySize.entries()].map(([size, items]) => {
+      const representative = [...items].sort((left, right) => {
+        const imageOrder = Number(Boolean(right.image)) - Number(Boolean(left.image));
+        return imageOrder || clean(left.CODBARRAS).localeCompare(clean(right.CODBARRAS));
+      })[0];
+      return {
+        size,
+        stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
+        barcode: representative.CODBARRAS,
+        image: representative.image ?? null,
+        scanned: Boolean(scannedBarcode) && items.some(item => item.CODBARRAS === scannedBarcode),
+        selected: Boolean(selectedBarcode) && items.some(item => item.CODBARRAS === selectedBarcode),
+        description: representative.DESCRIPCION,
+        supplierReference: representative.REFPROVEEDOR,
+        style: representative.STYLE,
+        stylo: representative.STYLO,
+        color: representative.COLOR,
+        talla: representative.TALLA,
+        season: representative.TEMPORADA,
+        department: representative.departamento,
+        section: representative.seccion,
+        family: representative.familia
+      };
+    }).sort((left, right) => compareSizes(left.size, right.size));
   }
 
   async buildRelatedColors(row) {
@@ -68,23 +80,32 @@ export class VsProductService {
           barcode: representative.CODBARRAS,
           image: representative.image ?? null,
           stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
-          sizes: this.buildSizes(items, '')
+          sizes: this.buildSizes(items)
         };
       })
       .sort((left, right) => left.color.localeCompare(right.color));
   }
 
-  async getProductByBarcode(barcode) {
+  async getProductByBarcode(barcode, { scannedBarcode = barcode } = {}) {
     const row = await this.repository.findByBarcode(clean(barcode));
     if (!row) return null;
     const variants = await this.findVariants(row);
-    const sizes = this.buildSizes(variants, row.CODBARRAS);
+    const originalBarcode = clean(scannedBarcode);
+    const scannedVariant = variants.find(item => item.CODBARRAS === originalBarcode) ?? null;
+    const selectedSize = this.buildSizes(variants, { selectedBarcode: row.CODBARRAS, scannedBarcode: scannedVariant?.CODBARRAS ?? '' })
+      .find(item => item.selected);
     return {
       brand: 'VS', image: row.image ?? null, description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
-      supplierReference: row.REFPROVEEDOR, color: row.COLOR, scannedSize: row.TALLA, scannedBarcode: row.CODBARRAS,
-      stock: row.STOCK, barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
-      section: row.seccion, family: row.familia, sizes, relatedColors: await this.buildRelatedColors(row),
+      supplierReference: row.REFPROVEEDOR, color: row.COLOR, scannedSize: scannedVariant?.TALLA ?? null,
+      selectedSize: row.TALLA, scannedBarcode: scannedVariant?.CODBARRAS ?? null, selectedBarcode: row.CODBARRAS,
+      stock: selectedSize?.stock ?? Number(row.STOCK ?? 0), barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
+      section: row.seccion, family: row.familia, sizes: this.buildSizes(variants, { selectedBarcode: row.CODBARRAS, scannedBarcode: scannedVariant?.CODBARRAS ?? '' }), relatedColors: await this.buildRelatedColors(row),
       performance: this.repository.metrics()
     };
+  }
+
+  searchCatalog(options = {}) {
+    const result = this.repository.searchCatalog(options);
+    return { ...result, facets: this.repository.catalogFacets() };
   }
 }
