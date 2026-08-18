@@ -1,8 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ExcelProductRepository } from '../src/repository/ExcelProductRepository.js';
+import { createSyntheticExcel } from './fixtures/synthetic-excel.js';
 
-const repo = new ExcelProductRepository('ae stock.xls');
+const fixture = await createSyntheticExcel([
+  { CODBARRAS: '9001', 'REFERENCIA STYLO': 'BASE-001', STYLE: '001', Stock: 2, Talla: 'S', Departamento: 'WOMEN', Seccion: 'JEANS', Familia: 'SKINNY' },
+  { CODBARRAS: '9002', 'REFERENCIA STYLO': 'BASE-001', STYLE: '001', Stock: 1, Talla: 'M', Departamento: 'WOMEN', Seccion: 'JEANS', Familia: 'SKINNY' },
+  { CODBARRAS: '9003', 'REFERENCIA STYLO': 'MUEBLE-001', Stock: 1, Departamento: 'MUEBLES', Seccion: 'HOME', Familia: 'BASIC' }
+], 'aeo-catalog-');
+const repo = new ExcelProductRepository(fixture.file);
+test.after(() => fixture.cleanup());
 const uniqueKeys = values => new Set(values.map(value => String(value).trim().toLocaleLowerCase()));
 
 test('devuelve departamentos únicos y normalizados', async () => {
@@ -14,7 +21,7 @@ test('devuelve departamentos únicos y normalizados', async () => {
 });
 
 test('oculta MUEBLES con comparación case-insensitive y trim-safe sin afectar búsqueda directa', async () => {
-  const isolated = new ExcelProductRepository('ae stock.xls');
+  const isolated = new ExcelProductRepository(fixture.file);
   isolated.rows = [
     { department: 'MUEBLES', ref: 'MUEBLE-001', CODBARRAS: '401', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 },
     { department: ' muebles ', ref: 'MUEBLE-002', CODBARRAS: '402', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 1 },
@@ -28,7 +35,7 @@ test('oculta MUEBLES con comparación case-insensitive y trim-safe sin afectar b
 });
 
 test('el catálogo solo expone referencias vendibles y suma stock real', async () => {
-  const isolated = new ExcelProductRepository('ae stock.xls');
+  const isolated = new ExcelProductRepository(fixture.file);
   isolated.rows = [
     { ref: 'SELLABLE', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: 3, size: 'S' },
     { ref: 'SELLABLE', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: -1, size: 'M' },
@@ -47,7 +54,7 @@ test('el catálogo solo expone referencias vendibles y suma stock real', async (
 });
 
 test('la consulta exacta conserva stock cero y negativo', async () => {
-  const isolated = new ExcelProductRepository('ae stock.xls');
+  const isolated = new ExcelProductRepository(fixture.file);
   isolated.rows = [
     { ref: 'ZERO', CODBARRAS: '100', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: 0 },
     { ref: 'NEGATIVE', CODBARRAS: '101', CODBARRAS2: '', supplierRef: '', reference: '', articleCode: '', stock: -3 }
@@ -79,7 +86,7 @@ test('agrupa productos por referencia, suma stock y limita resultados', async ()
 });
 
 test('encuentra similares por clasificación, excluye referencia y stock cero, y ordena por stock', async () => {
-  const isolated = new ExcelProductRepository('ae stock.xls');
+  const isolated = new ExcelProductRepository(fixture.file);
   isolated.rows = [
     { ref: 'CURRENT', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: 9, size: 'S', description: 'Current' },
     { ref: 'LOW', department: 'WOMEN', section: 'JEANS', family: 'SKINNY', stock: 2, size: 'S', description: 'Low' },
@@ -96,7 +103,7 @@ test('encuentra similares por clasificación, excluye referencia y stock cero, y
 });
 
 test('excluye variantes del mismo producto base pero permite el mismo STYLE de otra familia', async () => {
-  const isolated = new ExcelProductRepository('ae stock.xls');
+  const isolated = new ExcelProductRepository(fixture.file);
   isolated.rows = [
     { ref: '0703-2143-073', style: '2143', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 2, size: 'M' },
     { ref: '0703-2143-119', style: '2143', department: 'AERIE', section: 'SKIRTS', family: '703', stock: 10, size: 'M' },

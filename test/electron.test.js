@@ -47,7 +47,8 @@ test('el indicador empieza gris y solo usa verde tras conexión correcta', async
   assert.match(styles, /\.status-dot \{[^}]*background: #a7a7a3/);
   assert.match(styles, /\.status-dot\.is-connected \{[^}]*background: #4c9b6e/);
   assert.match(styles, /\.status-dot\.is-error \{[^}]*background: #bd4a4a/);
-  assert.ok(app.indexOf("setConnectionState('idle');\ninitializeConfiguration();") >= 0);
+  const startup = app.match(/setConnectionState\('idle'\);[\s\S]{0,120}initializeConfiguration\(\);/);
+  assert.ok(startup, 'la UI debe iniciar con estado idle antes de cargar la configuración');
   assert.ok(app.indexOf("setConnectionState('connected')") > app.indexOf("configurationRequest('/api/config/test', payload)"));
 });
 
