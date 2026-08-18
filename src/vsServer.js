@@ -15,12 +15,13 @@ const resolveLocalFile = (value, fallback) => [value, fallback].filter(Boolean)
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file)).find(existsSync);
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
-  const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'Stock de Histria Julio.xlsx'));
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
+  const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'beauty brands.csv'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
-  const catalogPath = imageCatalogFilePath || resolveLocalFile(env.VS_IMAGE_CATALOG_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'catalogo_actual_vs_resultados.json'));
-  const historicalPath = historicalImageFilePath || resolveLocalFile(env.VS_HISTORICAL_IMAGE_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'historico_vs_resultados.json'));
-  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath });
+  const catalogPath = imageCatalogFilePath || resolveLocalFile(env.VS_IMAGE_CATALOG_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'catalogo_actual_vs_nuevo.json'));
+  const historicalPath = historicalImageFilePath || resolveLocalFile(env.VS_HISTORICAL_IMAGE_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'historico_vs_nuevo.json'));
+  const styleColorPath = styleColorImageFilePath || resolveLocalFile(env.VS_STYLE_COLOR_IMAGE_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'style_color_recovery_vs.json'));
+  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath });
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {
