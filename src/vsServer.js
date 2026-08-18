@@ -15,11 +15,12 @@ const resolveLocalFile = (value, fallback) => [value, fallback].filter(Boolean)
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file)).find(existsSync);
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'Stock de Histria Julio.xlsx'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
   const catalogPath = imageCatalogFilePath || resolveLocalFile(env.VS_IMAGE_CATALOG_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'catalogo_actual_vs_resultados.json'));
-  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath });
+  const historicalPath = historicalImageFilePath || resolveLocalFile(env.VS_HISTORICAL_IMAGE_FILE, path.resolve(configuredProjectRoot, '..', 'VSImageTest', 'historico_vs_resultados.json'));
+  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath });
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {

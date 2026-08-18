@@ -13,14 +13,16 @@ const identityKeyFor = row => row.genericId && row.choiceFinal && row.COLOR
 const findHeaderRow = matrix => matrix.findIndex(row => row.some(cell => clean(cell) === 'CODBARRAS'));
 
 export class VsExcelProductRepository extends ProductRepository {
-  constructor(stockFilePath, { imageCatalogFilePath = null } = {}) {
+  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null } = {}) {
     super();
     const started = performance.now();
     this.stockFilePath = stockFilePath;
     this.rows = this.readStock(stockFilePath);
     this.imagesByBarcode = new Map();
+    this.historicalImagesByBarcode = new Map();
     this.metadataByBarcode = new Map();
     this.readImageCatalog(imageCatalogFilePath);
+    this.readHistoricalImageCatalog(historicalImageFilePath);
     this.byBarcode = new Map();
     this.byVisualGroup = new Map();
     this.byIdentity = new Map();
@@ -35,9 +37,11 @@ export class VsExcelProductRepository extends ProductRepository {
     }
     this.loadTimeMs = Math.round((performance.now() - started) * 100) / 100;
     this.barcodesIndexed = this.byBarcode.size;
-    this.imagesLoaded = this.imagesByBarcode.size;
-    this.reliableImagesLoaded = this.imagesLoaded;
-    console.log(`VS Excel cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes indexados; ${this.imagesLoaded} imágenes MATCH_COLOR_ACTUAL cargadas`);
+    this.currentImagesLoaded = this.imagesByBarcode.size;
+    this.historicalImagesLoaded = this.historicalImagesByBarcode.size;
+    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded;
+    this.reliableImagesLoaded = this.currentImagesLoaded;
+    console.log(`VS Excel cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes indexados; ${this.currentImagesLoaded} actuales; ${this.historicalImagesLoaded} históricas; ${this.imagesLoaded} totales`);
   }
 
   readStock(filePath) {
@@ -77,8 +81,31 @@ export class VsExcelProductRepository extends ProductRepository {
     }
   }
 
-  imageFor(row) { return this.imagesByBarcode.get(row.CODBARRAS) ?? null; }
-  toPublicRow(row) { return { ...row, image: this.imageFor(row) }; }
+  readHistoricalImageCatalog(filePath) {
+    if (!filePath) return;
+    const catalog = JSON.parse(readFileSync(filePath, 'utf8'));
+    const rows = Array.isArray(catalog) ? catalog : (catalog.resultados ?? catalog.rows);
+    if (!Array.isArray(rows)) throw new Error('El JSON histÃ³rico de imÃ¡genes VS no contiene resultados');
+    for (const row of rows) {
+      const barcode = clean(row.CODBARRAS);
+      const url = clean(row.image_url_historica);
+      const valid = row.clasificacion === 'HISTORICA_RECUPERADA'
+        && isUrl(url)
+        && Number(row.http_status) >= 200
+        && Number(row.http_status) < 300;
+      if (barcode && valid && !this.imagesByBarcode.has(barcode)) this.historicalImagesByBarcode.set(barcode, url);
+    }
+  }
+
+  imageFor(row) {
+    if (this.imagesByBarcode.has(row.CODBARRAS)) return { image: this.imagesByBarcode.get(row.CODBARRAS), source: 'current' };
+    if (this.historicalImagesByBarcode.has(row.CODBARRAS)) return { image: this.historicalImagesByBarcode.get(row.CODBARRAS), source: 'historical' };
+    return { image: null, source: null };
+  }
+  toPublicRow(row) {
+    const resolved = this.imageFor(row);
+    return { ...row, image: resolved.image, imageSource: resolved.source };
+  }
 
   async findByBarcode(barcode) {
     const started = performance.now();
@@ -90,7 +117,9 @@ export class VsExcelProductRepository extends ProductRepository {
   async findByIdentity(identityKey) { return (this.byIdentity.get(identityKey) ?? []).map(row => this.toPublicRow(row)); }
 
   metrics() {
-    return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed, imagesLoaded: this.imagesLoaded,
-      reliableImagesLoaded: this.reliableImagesLoaded, lastLookupMs: this.lastLookupMs ?? null };
+    return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed,
+      currentImagesLoaded: this.currentImagesLoaded, historicalImagesLoaded: this.historicalImagesLoaded,
+      imagesLoaded: this.imagesLoaded, reliableImagesLoaded: this.reliableImagesLoaded,
+      lastLookupMs: this.lastLookupMs ?? null };
   }
 }
