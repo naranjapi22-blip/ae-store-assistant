@@ -1,6 +1,7 @@
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const form = document.querySelector('#search-form');
 const input = document.querySelector('#barcode');
+input.placeholder = 'Escanea o busca por barcode / referencia';
 const result = document.querySelector('#result');
 const message = document.querySelector('#message');
 const scannerView = document.querySelector('#scanner-view');
@@ -36,13 +37,15 @@ const selectSize = sizeBarcode => {
   if (!currentProduct) return;
   const selected = currentProduct.sizes.find(item => item.barcode === sizeBarcode);
   if (!selected) return;
-  currentProduct = { ...currentProduct, barcode: selected.barcode, selectedBarcode: selected.barcode, selectedSize: selected.size, stock: selected.stock, image: selected.image, description: selected.description || currentProduct.description, supplierReference: selected.supplierReference || currentProduct.supplierReference, sizes: currentProduct.sizes.map(item => ({ ...item, selected: item.barcode === selected.barcode })) };
+  currentProduct = { ...currentProduct, barcode: selected.barcode, selectedBarcode: selected.barcode, selectedSize: selected.size, stock: selected.stock, totalStock: currentProduct.totalStock, image: selected.image, description: selected.description || currentProduct.description, supplierReference: selected.supplierReference || currentProduct.supplierReference, sizes: currentProduct.sizes.map(item => ({ ...item, selected: item.barcode === selected.barcode })) };
   input.value = selected.barcode; renderProduct(currentProduct); setMessage('Talla seleccionada', 'success');
 };
 
 const renderProduct = data => {
   currentProduct = data;
   result.innerHTML = `<article class="product"><div class="image">${renderImage(data)}</div><div class="details"><p class="eyebrow">PRODUCTO ENCONTRADO</p><h2>${escapeHtml(data.description)}</h2><dl><dt>STYLE</dt><dd>${escapeHtml(data.style || 'No disponible')}</dd><dt>REFPROVEEDOR</dt><dd>${escapeHtml(data.supplierReference || 'No disponible')}</dd><dt>COLOR</dt><dd>${escapeHtml(data.color || 'No disponible')}</dd><dt>TALLA ESCANEADA</dt><dd>${escapeHtml(data.scannedSize || 'No pertenece a este color')}</dd><dt>TALLA SELECCIONADA</dt><dd>${escapeHtml(data.selectedSize || 'No disponible')}</dd><dt>STOCK SELECCIONADO</dt><dd>${escapeHtml(data.stock)}</dd><dt>TEMPORADA</dt><dd>${escapeHtml(data.season || 'No disponible')}</dd><dt>DEPARTAMENTO</dt><dd>${escapeHtml(data.department || 'No disponible')}</dd><dt>SECCIÓN</dt><dd>${escapeHtml(data.section || 'No disponible')}</dd><dt>FAMILIA</dt><dd>${escapeHtml(data.family || 'No disponible')}</dd></dl><h3>${data.sizes?.length === 1 ? 'Talla disponible' : 'Tallas disponibles'}</h3><ul class="sizes">${renderSizes(data)}</ul>${renderColors(data)}<div class="detail-actions"><button class="secondary-action" type="button" data-open-catalog>Explorar catálogo</button><button class="secondary-action" type="button" data-back-scanner>Volver al escáner</button></div></div></article>`;
+  const detailList = result.querySelector('.details dl');
+  if (detailList) { const totalLabel = document.createElement('dt'); totalLabel.textContent = 'STOCK TOTAL'; const totalValue = document.createElement('dd'); totalValue.textContent = String(data.totalStock ?? 0); detailList.insertBefore(totalLabel, detailList.children[12] ?? null); detailList.insertBefore(totalValue, detailList.children[13] ?? null); }
   const image = result.querySelector('.image img');
   image?.addEventListener('error', () => { image.hidden = true; image.nextElementSibling.hidden = false; });
   result.querySelectorAll('[data-size-barcode]').forEach(button => button.addEventListener('click', () => selectSize(button.dataset.sizeBarcode)));
@@ -60,6 +63,11 @@ const loadProduct = async (barcode, resetOriginal = true, fromCatalog = false) =
     const query = originalScannedBarcode ? `?scannedBarcode=${encodeURIComponent(originalScannedBarcode)}` : '';
     const response = await fetch(`/api/vs/products/${encodeURIComponent(barcode)}${query}`);
     const data = await response.json();
+    if (response.status === 409) {
+      result.innerHTML = `<div class="empty"><h2>${escapeHtml(data.error)}</h2><div class="color-list">${(data.options || []).map(option => `<button class="color-option" type="button" data-reference-barcode="${escapeHtml(option.barcode)}"><span>${escapeHtml(option.style)} · ${escapeHtml(option.color)}</span><small>${escapeHtml(option.description)}</small></button>`).join('')}</div></div>`;
+      result.querySelectorAll('[data-reference-barcode]').forEach(button => button.addEventListener('click', () => loadProduct(button.dataset.referenceBarcode, true, false)));
+      setMessage('Selecciona una opción', 'error'); return;
+    }
     if (!response.ok) throw new Error(response.status === 404 ? 'No se encontró ningún producto.' : (data.error || 'No se pudo consultar'));
     data.originalScannedBarcode = originalScannedBarcode; data.returnToCatalog = returnToCatalog; input.value = data.barcode; showScanner(); renderProduct(data); setMessage('Producto encontrado', 'success');
   } catch (error) { result.innerHTML = `<div class="empty"><h2>${escapeHtml(error.message)}</h2></div>`; setMessage('No se pudo completar la consulta', 'error'); }
@@ -67,7 +75,12 @@ const loadProduct = async (barcode, resetOriginal = true, fromCatalog = false) =
 };
 
 const renderFacets = facets => {
-  const fill = (select, values) => { const current = select.value; select.innerHTML = `<option value="">${select === catalogDepartment ? 'Todos' : select === catalogSection ? 'Todas' : 'Todas'}</option>${(values || []).map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`; select.value = current; };
+  const fill = (select, values) => {
+    const current = select.value;
+    const allowed = new Set(values || []);
+    select.innerHTML = `<option value="">${select === catalogDepartment ? 'Todos' : 'Todas'}</option>${(values || []).map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
+    select.value = allowed.has(current) ? current : '';
+  };
   fill(catalogDepartment, facets.departments); fill(catalogSection, facets.sections); fill(catalogFamily, facets.families);
 };
 
@@ -94,5 +107,7 @@ function showScanner() { catalogView.hidden = true; scannerView.hidden = false; 
 
 form.addEventListener('submit', event => { event.preventDefault(); returnToCatalog = false; loadProduct(input.value.trim(), true, false); });
 catalogToggle.addEventListener('click', openCatalog); backScanner.addEventListener('click', showScanner); catalogForm.addEventListener('submit', event => { event.preventDefault(); loadCatalog(true); }); catalogMore.addEventListener('click', () => loadCatalog(false));
-[catalogDepartment, catalogSection, catalogFamily].forEach(select => select.addEventListener('change', () => loadCatalog(true)));
+catalogDepartment.addEventListener('change', () => { catalogSection.value = ''; catalogFamily.value = ''; loadCatalog(true); });
+catalogSection.addEventListener('change', () => { catalogFamily.value = ''; loadCatalog(true); });
+catalogFamily.addEventListener('change', () => loadCatalog(true));
 focusScanner();

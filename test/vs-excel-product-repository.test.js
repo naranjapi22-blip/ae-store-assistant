@@ -37,6 +37,72 @@ test('VS repository indexes CSV/XLSX, keeps strings, hides costs, and applies im
     assert.equal(typeof (await repository.findByBarcode('199294304984')).STYLE, 'string'); assert.equal(typeof (await repository.findByBarcode('199294304984')).STYLO, 'string');
     assert.equal(Object.hasOwn((await repository.findByBarcode('199294304984')), 'COSTESTOCK'), false);
     const xlsxRepository = new VsExcelProductRepository(stock, { imageCatalogFilePath: catalog, historicalImageFilePath: historical, styleColorImageFilePath: styleColor }); assert.equal(xlsxRepository.metrics().barcodesIndexed, 4);
+    const selected = await service.getProductByBarcode('199294304984'); assert.equal(selected.stock, 2); assert.equal(selected.totalStock, 3); assert.equal(selected.sizes.reduce((total, size) => total + size.stock, 0), 3);
+    const oneSize = await service.getProductByBarcode('199294399999'); assert.equal(oneSize.stock, 5); assert.equal(oneSize.totalStock, 5);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('VS busca Referencia con índice, conserva strings y rechaza STYLE ambiguo', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-reference-'));
+  try {
+    const stock = path.join(dir, 'stock.csv'); const catalog = path.join(dir, 'catalog.json'); const historical = path.join(dir, 'historical.json'); const styleColor = path.join(dir, 'style-color.json');
+    const make = (barcode, reference, style, color, size, stockValue = 1) => ({ CODARTICULO: `A-${barcode}`, REFPROVEEDOR: reference, DESCRIPCION: 'Reference product', TEMPORADA: 'TEST', TALLA: size, COLOR: color, CODBARRAS: barcode, STOCK: stockValue, departamento: 'A', seccion: 'A1', familia: 'F1', STYLE: style, STYLO: 'STYLO' });
+    await writeCsv(stock, [make('4001', '00042', 'STYLE-REF', 'RED', 'S', 2), make('4002', '00042', 'STYLE-REF', 'RED', 'M', 3), make('4003', '00043', 'STYLE-COLOR', 'RED', 'S'), make('4004', '00043', 'STYLE-COLOR', 'BLUE', 'S'), make('4005', '00044', 'STYLE-A', 'RED', 'S'), make('4006', '00044', 'STYLE-B', 'RED', 'S')]);
+    await writeCatalog(catalog, []); await writeCatalog(historical, []); await writeCatalog(styleColor, []);
+    const repository = new VsExcelProductRepository(stock, { imageCatalogFilePath: catalog, historicalImageFilePath: historical, styleColorImageFilePath: styleColor }); const service = new VsProductService(repository);
+    assert.ok(repository.byReference instanceof Map); assert.equal(typeof repository.rows[0].REFPROVEEDOR, 'string');
+    const reference = await service.getProductByQuery(' 00042 '); assert.ok(reference.product); assert.equal(reference.product.totalStock, 5); assert.equal(reference.product.sizes.length, 2); assert.equal(reference.product.image, null);
+    assert.equal(reference.product.relatedColors.length, 0);
+    const multiColor = await service.getProductByQuery('00043'); assert.ok(multiColor.product); assert.equal(multiColor.product.style, 'STYLE-COLOR'); assert.ok(multiColor.product.relatedColors.some(item => item.color === 'BLUE'));
+    const ambiguous = await service.getProductByQuery('00044'); assert.equal(ambiguous.product, null); assert.equal(ambiguous.ambiguous, true); assert.deepEqual(ambiguous.options.map(item => item.style), ['STYLE-A', 'STYLE-B']);
+    assert.equal(service.searchCatalog({ query: '00042' }).total, 1); assert.equal((await service.getProductByQuery('NOT-FOUND')).product, null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('VS catálogo aplica filtros AND antes de paginar y calcula facets dependientes', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-catalog-filters-'));
+  try {
+    const stock = path.join(dir, 'stock.csv'); const catalog = path.join(dir, 'catalog.json'); const historical = path.join(dir, 'historical.json'); const styleColor = path.join(dir, 'style-color.json');
+    const make = (barcode, style, color, department, section, family, size, description = 'Synthetic product') => ({ CODARTICULO: style, REFPROVEEDOR: `REF-${style}`, DESCRIPCION: description, TEMPORADA: 'TEST', TALLA: size, COLOR: color, CODBARRAS: barcode, STOCK: 1, departamento: department, seccion: section, familia: family, STYLE: style, STYLO: `STYLO-${style}` });
+    const synthetic = [
+      make('1001', 'STYLE-A', 'RED', 'A', 'A1', 'A1-1', 'S', 'Alpha product'),
+      make('1002', 'STYLE-A', 'RED', 'A', 'A1', 'A1-1', 'M', 'Alpha product'),
+      make('1003', 'STYLE-A', 'BLUE', 'A', 'A1', 'A1-2', 'S', 'Blue product'),
+      make('1004', 'STYLE-A2', 'RED', 'A', 'A2', 'A2-1', 'S', 'A2 product'),
+      make('1005', 'STYLE-B', 'RED', 'B', 'B1', 'B1-1', 'S', 'B product')
+    ];
+    for (let index = 0; index < 55; index += 1) synthetic.push(make(`2${String(index).padStart(3, '0')}`, `STYLE-X${index}`, 'RED', 'A', 'A1', 'A1-1', 'S'));
+    synthetic.push(make('2999', 'STYLE-LAST', 'RED', 'A', 'A2', 'A2-1', 'S', 'Last A2 product'));
+    await writeCsv(stock, synthetic); await writeCatalog(catalog, []); await writeCatalog(historical, []); await writeCatalog(styleColor, []);
+    const repository = new VsExcelProductRepository(stock, { imageCatalogFilePath: catalog, historicalImageFilePath: historical, styleColorImageFilePath: styleColor }); const service = new VsProductService(repository);
+    assert.ok(service.searchCatalog({ department: 'A', limit: 100 }).items.every(item => item.department === 'A'));
+    assert.ok(service.searchCatalog({ section: 'A1', limit: 100 }).items.every(item => item.section === 'A1'));
+    assert.ok(service.searchCatalog({ family: 'A1-1', limit: 100 }).items.every(item => item.family === 'A1-1'));
+    assert.ok(service.searchCatalog({ department: 'A', section: 'A1', limit: 100 }).items.every(item => item.department === 'A' && item.section === 'A1'));
+    assert.ok(service.searchCatalog({ department: 'B', limit: 100 }).items.every(item => item.department === 'B'));
+    assert.deepEqual(service.searchCatalog({ department: 'B' }).facets.sections, ['B1']);
+    assert.deepEqual(service.searchCatalog({ department: 'A' }).facets.sections, ['A1', 'A2']);
+    assert.deepEqual(service.searchCatalog({ department: 'A', section: 'A1' }).facets.families, ['A1-1', 'A1-2']);
+    const page = service.searchCatalog({ department: 'A', section: 'A1', limit: 1 }); const next = service.searchCatalog({ department: 'A', section: 'A1', offset: 1, limit: 1 });
+    assert.equal(page.items.length, 1); assert.ok(page.total > 1); assert.equal(page.hasMore, true); assert.notEqual(page.items[0].barcode, next.items[0].barcode);
+    assert.ok(service.searchCatalog({ query: 'Alpha', department: 'A', section: 'A1' }).items.every(item => item.description === 'Alpha product'));
+    const redCard = repository.catalogGroups.find(item => item.style === 'STYLE-A' && item.color === 'RED'); assert.ok(redCard); assert.equal(redCard.availableSizes, 2); assert.equal(redCard.stock, 2); assert.equal(repository.catalogGroups.filter(item => item.style === 'STYLE-A' && item.color === 'RED').length, 1);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('VS totalStock respeta STYLE+COLOR, stock positivo y tallas duplicadas', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-total-stock-'));
+  try {
+    const stock = path.join(dir, 'stock.csv'); const catalog = path.join(dir, 'catalog.json'); const historical = path.join(dir, 'historical.json'); const styleColor = path.join(dir, 'style-color.json');
+    const make = (barcode, style, color, size, stockValue) => ({ CODARTICULO: `${style}-${color}`, REFPROVEEDOR: `REF-${style}-${color}`, DESCRIPCION: 'Stock test', TEMPORADA: 'TEST', TALLA: size, COLOR: color, CODBARRAS: barcode, STOCK: stockValue, departamento: 'A', seccion: 'A1', familia: 'F1', STYLE: style, STYLO: 'STYLO' });
+    await writeCsv(stock, [make('3001', 'STYLE-ONE', 'RED', 'S', 2), make('3002', 'STYLE-ONE', 'RED', 'S', 3), make('3003', 'STYLE-ONE', 'RED', 'M', 4), make('3004', 'STYLE-ONE', 'RED', 'L', 0), make('3005', 'STYLE-ONE', 'RED', 'XL', -2), make('3006', 'STYLE-ONE', 'BLUE', 'S', 10), make('3007', 'STYLE-TWO', 'RED', 'S', 20)]);
+    await writeCatalog(catalog, []); await writeCatalog(historical, []); await writeCatalog(styleColor, []);
+    const service = new VsProductService(new VsExcelProductRepository(stock, { imageCatalogFilePath: catalog, historicalImageFilePath: historical, styleColorImageFilePath: styleColor }));
+    const initial = await service.getProductByBarcode('3001');
+    assert.equal(initial.stock, 5); assert.equal(initial.totalStock, 9); assert.deepEqual(initial.sizes.map(size => [size.size, size.stock]), [['S', 5], ['M', 4]]); assert.equal(initial.image, null);
+    const changed = await service.getProductByBarcode('3003', { scannedBarcode: initial.scannedBarcode }); assert.equal(changed.stock, 4); assert.equal(changed.totalStock, 9); assert.equal(changed.style, 'STYLE-ONE'); assert.equal(changed.color, 'RED');
+    const oneSize = await service.getProductByBarcode('3006'); assert.equal(oneSize.stock, 10); assert.equal(oneSize.totalStock, 10);
+    const otherStyle = await service.getProductByBarcode('3007'); assert.equal(otherStyle.totalStock, 20);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

@@ -58,6 +58,7 @@ export class VsExcelProductRepository extends ProductRepository {
     this.readHistoricalImageCatalog(historicalImageFilePath);
     this.readStyleColorImageCatalog(styleColorImageFilePath);
     this.byBarcode = new Map();
+    this.byReference = new Map();
     this.byStyle = new Map();
     this.byStyleColor = new Map();
     this.byIdentity = new Map();
@@ -74,6 +75,7 @@ export class VsExcelProductRepository extends ProductRepository {
     for (const row of this.rows) {
       Object.assign(row, this.metadataByBarcode.get(row.CODBARRAS) ?? {});
       if (row.CODBARRAS) this.byBarcode.set(row.CODBARRAS, row);
+      if (row.REFPROVEEDOR) this.byReference.set(keyPart(row.REFPROVEEDOR), [...(this.byReference.get(keyPart(row.REFPROVEEDOR)) ?? []), row]);
       if (isValidStyle(row.STYLE)) this.byStyle.set(keyPart(row.STYLE), [...(this.byStyle.get(keyPart(row.STYLE)) ?? []), row]);
       row.styleColorKey = groupKeyFor(row);
       row.identityKey = identityKeyFor(row);
@@ -196,6 +198,8 @@ export class VsExcelProductRepository extends ProductRepository {
     return row ? this.toPublicRow(row) : null;
   }
 
+  async findByReference(reference) { return (this.byReference.get(keyPart(reference)) ?? []).map(row => this.toPublicRow(row)); }
+
   async findByIdentity(identityKey) { return (this.byIdentity.get(identityKey) ?? []).map(row => this.toPublicRow(row)); }
   async findByStyle(style) { return (this.byStyle.get(keyPart(style)) ?? []).map(row => this.toPublicRow(row)); }
   async findByStyleColor(style, color) { return (this.byStyleColor.get(`${keyPart(style)}|${keyPart(color)}`) ?? []).map(row => this.toPublicRow(row)); }
@@ -234,16 +238,20 @@ export class VsExcelProductRepository extends ProductRepository {
 
   searchCatalog({ query = '', department = '', section = '', family = '', offset = 0, limit = 50 } = {}) {
     const q = keyPart(query);
-    const matches = this.catalogGroups.filter(item => {
-      const searchable = [item.description, item.style, item.color, item.barcode, item.supplierReference].map(keyPart).join('|');
-      return (!q || searchable.includes(q))
-        && (!department || keyPart(item.department) === keyPart(department))
-        && (!section || keyPart(item.section) === keyPart(section))
-        && (!family || keyPart(item.family) === keyPart(family));
-    });
+    const base = this.catalogGroups.filter(item => !q || [item.description, item.style, item.color, item.barcode, item.supplierReference].map(keyPart).join('|').includes(q));
+    const withFilters = (items, filters) => items.filter(item => (!filters.department || keyPart(item.department) === keyPart(filters.department))
+      && (!filters.section || keyPart(item.section) === keyPart(filters.section))
+      && (!filters.family || keyPart(item.family) === keyPart(filters.family)));
+    const matches = withFilters(base, { department, section, family });
+    const facetValues = (items, field) => [...new Set(items.map(item => clean(item[field])).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+    const facets = {
+      departments: facetValues(withFilters(base, { section, family }), 'department'),
+      sections: facetValues(withFilters(base, { department, family }), 'section'),
+      families: facetValues(withFilters(base, { department, section }), 'family')
+    };
     const start = Math.max(0, Number(offset) || 0);
     const pageSize = Math.min(100, Math.max(1, Number(limit) || 50));
-    return { items: matches.slice(start, start + pageSize), total: matches.length, offset: start, limit: pageSize, hasMore: start + pageSize < matches.length };
+    return { items: matches.slice(start, start + pageSize), total: matches.length, offset: start, limit: pageSize, hasMore: start + pageSize < matches.length, facets };
   }
 
   catalogFacets() {

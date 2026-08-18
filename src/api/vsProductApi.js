@@ -24,7 +24,14 @@ export function vsProductApi(service) {
     try {
       const barcode = decodeURIComponent(match[1]);
       const scannedBarcode = requestUrl.searchParams.get('scannedBarcode') || barcode;
-      const product = await service.getProductByBarcode(barcode, { scannedBarcode });
+      const resolved = typeof service.getProductByQuery === 'function'
+        ? await service.getProductByQuery(barcode, { scannedBarcode })
+        : { product: await service.getProductByBarcode(barcode, { scannedBarcode }) };
+      if (resolved.ambiguous) {
+        response.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify({ error: 'La referencia corresponde a varios STYLE; selecciona una opción.', options: resolved.options }));
+      }
+      const product = resolved.product;
       response.writeHead(product ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
       return response.end(JSON.stringify(product ?? { error: 'Producto VS no encontrado' }));
     } catch (error) {

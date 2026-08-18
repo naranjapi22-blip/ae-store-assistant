@@ -92,20 +92,40 @@ export class VsProductService {
     const variants = await this.findVariants(row);
     const originalBarcode = clean(scannedBarcode);
     const scannedVariant = variants.find(item => item.CODBARRAS === originalBarcode) ?? null;
-    const selectedSize = this.buildSizes(variants, { selectedBarcode: row.CODBARRAS, scannedBarcode: scannedVariant?.CODBARRAS ?? '' })
-      .find(item => item.selected);
+    const sizes = this.buildSizes(variants, { selectedBarcode: row.CODBARRAS, scannedBarcode: scannedVariant?.CODBARRAS ?? '' });
+    const selectedSize = sizes.find(item => item.selected);
+    const totalStock = sizes.reduce((total, item) => total + Number(item.stock ?? 0), 0);
     return {
       brand: 'VS', image: row.image ?? null, description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
       supplierReference: row.REFPROVEEDOR, color: row.COLOR, scannedSize: scannedVariant?.TALLA ?? null,
       selectedSize: row.TALLA, scannedBarcode: scannedVariant?.CODBARRAS ?? null, selectedBarcode: row.CODBARRAS,
-      stock: selectedSize?.stock ?? Number(row.STOCK ?? 0), barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
-      section: row.seccion, family: row.familia, sizes: this.buildSizes(variants, { selectedBarcode: row.CODBARRAS, scannedBarcode: scannedVariant?.CODBARRAS ?? '' }), relatedColors: await this.buildRelatedColors(row),
+      stock: selectedSize?.stock ?? Number(row.STOCK ?? 0), totalStock, barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
+      section: row.seccion, family: row.familia, sizes, relatedColors: await this.buildRelatedColors(row),
       performance: this.repository.metrics()
     };
   }
 
+  async getProductByQuery(query, options = {}) {
+    const value = clean(query);
+    const barcodeRow = await this.repository.findByBarcode(value);
+    if (barcodeRow) return { product: await this.getProductByBarcode(value, options) };
+    const rows = typeof this.repository.findByReference === 'function' ? await this.repository.findByReference(value) : [];
+    if (!rows.length) return { product: null };
+    const styles = new Set(rows.map(row => clean(row.STYLE)).filter(validValue));
+    if (styles.size > 1) {
+      const optionsByStyle = [...new Map(rows.map(row => [clean(row.STYLE), row])).values()]
+        .sort((left, right) => clean(left.STYLE).localeCompare(clean(right.STYLE)))
+        .map(row => ({ barcode: row.CODBARRAS, reference: row.REFPROVEEDOR, style: row.STYLE, color: row.COLOR, description: row.DESCRIPCION, image: row.image }));
+      return { product: null, ambiguous: true, options: optionsByStyle };
+    }
+    const representative = [...rows].sort((left, right) => {
+      const imageOrder = Number(Boolean(right.image)) - Number(Boolean(left.image));
+      return imageOrder || clean(left.CODBARRAS).localeCompare(clean(right.CODBARRAS));
+    })[0];
+    return { product: await this.getProductByBarcode(representative.CODBARRAS, options) };
+  }
+
   searchCatalog(options = {}) {
-    const result = this.repository.searchCatalog(options);
-    return { ...result, facets: this.repository.catalogFacets() };
+    return this.repository.searchCatalog(options);
   }
 }
