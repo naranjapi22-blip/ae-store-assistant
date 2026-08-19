@@ -1,6 +1,6 @@
 import XLSX from 'xlsx';
 import { performance } from 'node:perf_hooks';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ProductRepository } from './ProductRepository.js';
 
@@ -45,7 +45,7 @@ const firstDefined = (row, aliases) => {
 };
 
 export class VsExcelProductRepository extends ProductRepository {
-  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null } = {}) {
+  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null } = {}) {
     super();
     const started = performance.now();
     this.stockFilePath = stockFilePath;
@@ -53,10 +53,14 @@ export class VsExcelProductRepository extends ProductRepository {
     this.imagesByBarcode = new Map();
     this.historicalImagesByBarcode = new Map();
     this.styleColorImagesByBarcode = new Map();
+    this.vsCrImagesByBarcode = new Map();
+    this.vsIndiaImagesByBarcode = new Map();
     this.metadataByBarcode = new Map();
     this.readImageCatalog(imageCatalogFilePath);
     this.readHistoricalImageCatalog(historicalImageFilePath);
     this.readStyleColorImageCatalog(styleColorImageFilePath);
+    this.readVsCrImageCatalog(vsCrImageFilePath);
+    this.readVsIndiaImageCatalog(vsIndiaImageFilePath);
     this.byBarcode = new Map();
     this.byReference = new Map();
     this.byStyle = new Map();
@@ -88,14 +92,40 @@ export class VsExcelProductRepository extends ProductRepository {
     this.currentImagesLoaded = this.imagesByBarcode.size;
     this.historicalImagesLoaded = this.historicalImagesByBarcode.size;
     this.styleColorImagesLoaded = this.styleColorImagesByBarcode.size;
-    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded;
+    this.vsCrImagesLoaded = this.vsCrImagesByBarcode.size;
+    this.vsIndiaImagesLoaded = this.vsIndiaImagesByBarcode.size;
+    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded + this.vsCrImagesLoaded + this.vsIndiaImagesLoaded;
     this.reliableImagesLoaded = this.imagesLoaded;
-    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.imagesLoaded} imágenes`);
+    this.totalImagesLoaded = this.imagesLoaded;
+    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.vsCrImagesLoaded} vs-cr-refid; ${this.vsIndiaImagesLoaded} vs-india; ${this.imagesLoaded} imagenes`);
   }
 
   readStock(filePath) {
-    const rows = path.extname(filePath).toLowerCase() === '.csv' ? this.readCsv(filePath) : this.readWorkbook(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const rows = ext === '.json' ? this.readJsonStock(filePath)
+      : ext === '.csv' ? this.readCsv(filePath)
+      : this.readWorkbook(filePath);
     return rows.filter(row => row.STOCK > 0 && (row.CODBARRAS || row.CODBARRAS2));
+  }
+
+  readJsonStock(filePath) {
+    return this.readJsonRows(filePath, 'inventario VS maestro').map(row => this.normalizeStockRow({
+      codarticulo: row.codigoArticulo ?? row.CODARTICULO ?? row.codarticulo ?? '',
+      referencia: row.referencia ?? row.REFPROVEEDOR ?? '',
+      descripcion: row.descripcion ?? row.DESCRIPCION ?? '',
+      temporada: row.temporada ?? row.TEMPORADA ?? '',
+      talla: row.talla ?? row.TALLA ?? '',
+      color: row.color ?? row.COLOR ?? '',
+      codbarras: row.barcode ?? row.CODBARRAS ?? '',
+      codbarras2: row.barcode2 ?? row.CODBARRAS2 ?? '',
+      stock: row.stock ?? row.STOCK ?? 0,
+      departamento: row.departamento ?? row.DEPARTAMENTO ?? '',
+      seccion: row.seccion ?? row.SECCION ?? '',
+      familia: row.familia ?? row.FAMILIA ?? '',
+      subfamilia: row.subfamilia ?? row.SUBFAMILIA ?? '',
+      style: row.style ?? row.STYLE ?? '',
+      stylo: row.stylo ?? row.STYLO ?? ''
+    }));
   }
 
   readCsv(filePath) {
@@ -179,10 +209,41 @@ export class VsExcelProductRepository extends ProductRepository {
     }
   }
 
+  readVsCrImageCatalog(filePath) {
+    if (!filePath || !existsSync(filePath)) return;
+    for (const row of this.readJsonRows(filePath, 'recuperaciÃ³n VS Costa Rica')) {
+      const barcode = clean(row.CODBARRAS ?? row.barcode);
+      const url = clean(row.imageUrl ?? row.image_url);
+      const result = clean(row.resultado).toUpperCase();
+      const valid = ['MATCHED', 'SAFE_DESPITE_PRODUCTREFERENCE'].includes(result) && isUrl(url);
+      if (barcode && valid && !this.imagesByBarcode.has(barcode) && !this.historicalImagesByBarcode.has(barcode) && !this.styleColorImagesByBarcode.has(barcode)) {
+        this.vsCrImagesByBarcode.set(barcode, url);
+      }
+    }
+  }
+
+  readVsIndiaImageCatalog(filePath) {
+    if (!filePath || !existsSync(filePath)) return;
+    for (const row of this.readJsonRows(filePath, 'recuperacion VS India')) {
+      const barcode = clean(row.CODBARRAS ?? row.barcode);
+      const url = clean(row.imageUrl ?? row.image_url ?? row.image);
+      const evidence = row.evidence ?? {};
+      const valid = isUrl(url)
+        && evidence.itemSizeIdMatchesBarcode === true
+        && evidence.itemIdMatchesStyleColor === true
+        && evidence.masterStyleMatchesStyle === true;
+      if (barcode && valid && !this.imagesByBarcode.has(barcode) && !this.historicalImagesByBarcode.has(barcode) && !this.styleColorImagesByBarcode.has(barcode) && !this.vsCrImagesByBarcode.has(barcode)) {
+        this.vsIndiaImagesByBarcode.set(barcode, url);
+      }
+    }
+  }
+
   imageFor(row) {
     if (this.imagesByBarcode.has(row.CODBARRAS)) return { image: this.imagesByBarcode.get(row.CODBARRAS), source: 'current' };
     if (this.historicalImagesByBarcode.has(row.CODBARRAS)) return { image: this.historicalImagesByBarcode.get(row.CODBARRAS), source: 'historical' };
     if (this.styleColorImagesByBarcode.has(row.CODBARRAS)) return { image: this.styleColorImagesByBarcode.get(row.CODBARRAS), source: 'style-color' };
+    if (this.vsCrImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsCrImagesByBarcode.get(row.CODBARRAS), source: 'vs-cr-refid' };
+    if (this.vsIndiaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsIndiaImagesByBarcode.get(row.CODBARRAS), source: 'vs-india' };
     return { image: null, source: null };
   }
 
@@ -226,6 +287,7 @@ export class VsExcelProductRepository extends ProductRepository {
         style: representative.STYLE,
         stylo: representative.STYLO,
         color: representative.COLOR,
+        subfamily: representative.subfamilia,
         stock: rows.reduce((total, row) => total + Number(row.STOCK ?? 0), 0),
         availableSizes: sizes.size,
         supplierReference: representative.REFPROVEEDOR,
@@ -236,18 +298,20 @@ export class VsExcelProductRepository extends ProductRepository {
     }).sort((left, right) => `${left.style}|${left.color}|${left.barcode}`.localeCompare(`${right.style}|${right.color}|${right.barcode}`));
   }
 
-  searchCatalog({ query = '', department = '', section = '', family = '', offset = 0, limit = 50 } = {}) {
+  searchCatalog({ query = '', department = '', section = '', family = '', subfamily = '', offset = 0, limit = 50 } = {}) {
     const q = keyPart(query);
-    const base = this.catalogGroups.filter(item => !q || [item.description, item.style, item.color, item.barcode, item.supplierReference].map(keyPart).join('|').includes(q));
+    const base = this.catalogGroups.filter(item => !q || [item.description, item.style, item.color, item.subfamily, item.barcode, item.supplierReference].map(keyPart).join('|').includes(q));
     const withFilters = (items, filters) => items.filter(item => (!filters.department || keyPart(item.department) === keyPart(filters.department))
       && (!filters.section || keyPart(item.section) === keyPart(filters.section))
-      && (!filters.family || keyPart(item.family) === keyPart(filters.family)));
-    const matches = withFilters(base, { department, section, family });
+      && (!filters.family || keyPart(item.family) === keyPart(filters.family))
+      && (!filters.subfamily || keyPart(item.subfamily) === keyPart(filters.subfamily)));
+    const matches = withFilters(base, { department, section, family, subfamily });
     const facetValues = (items, field) => [...new Set(items.map(item => clean(item[field])).filter(Boolean))].sort((left, right) => left.localeCompare(right));
     const facets = {
-      departments: facetValues(withFilters(base, { section, family }), 'department'),
-      sections: facetValues(withFilters(base, { department, family }), 'section'),
-      families: facetValues(withFilters(base, { department, section }), 'family')
+      departments: facetValues(withFilters(base, { section, family, subfamily }), 'department'),
+      sections: facetValues(withFilters(base, { department, family, subfamily }), 'section'),
+      families: facetValues(withFilters(base, { department, section, subfamily }), 'family'),
+      subfamilies: facetValues(withFilters(base, { department, section, family }), 'subfamily')
     };
     const start = Math.max(0, Number(offset) || 0);
     const pageSize = Math.min(100, Math.max(1, Number(limit) || 50));
@@ -256,13 +320,15 @@ export class VsExcelProductRepository extends ProductRepository {
 
   catalogFacets() {
     const values = field => [...new Set(this.catalogGroups.map(item => clean(item[field])).filter(Boolean))].sort((left, right) => left.localeCompare(right));
-    return { departments: values('department'), sections: values('section'), families: values('family') };
+    return { departments: values('department'), sections: values('section'), families: values('family'), subfamilies: values('subfamily') };
   }
 
   metrics() {
     return { loadTimeMs: this.loadTimeMs, barcodesIndexed: this.barcodesIndexed,
       currentImagesLoaded: this.currentImagesLoaded, historicalImagesLoaded: this.historicalImagesLoaded,
-      styleColorImagesLoaded: this.styleColorImagesLoaded, imagesLoaded: this.imagesLoaded,
+      styleColorImagesLoaded: this.styleColorImagesLoaded, vsCrImagesLoaded: this.vsCrImagesLoaded,
+      vsIndiaImagesLoaded: this.vsIndiaImagesLoaded,
+      imagesLoaded: this.imagesLoaded, totalImagesLoaded: this.imagesLoaded,
       reliableImagesLoaded: this.reliableImagesLoaded, lastLookupMs: this.lastLookupMs ?? null };
   }
 }

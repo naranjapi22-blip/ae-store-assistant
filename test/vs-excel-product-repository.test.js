@@ -90,6 +90,30 @@ test('VS catálogo aplica filtros AND antes de paginar y calcula facets dependie
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test('VS catálogo expone y filtra subfamily con facets dependientes', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-subfamily-filters-'));
+  try {
+    const stock = path.join(dir, 'stock.json'); const catalog = path.join(dir, 'catalog.json'); const historical = path.join(dir, 'historical.json'); const styleColor = path.join(dir, 'style-color.json');
+    const make = (barcode, department, section, family, subfamily, style, color, size, description = 'Synthetic product') => ({ codigoArticulo: `ART-${barcode}`, referencia: `REF-${barcode}`, descripcion: description, temporada: 'TEST', talla: size, color, barcode, barcode2: '', stock: 1, departamento: department, seccion: section, familia: family, subfamilia: subfamily, style, stylo: `ST-${barcode}` });
+    await writeFile(stock, JSON.stringify([
+      make('5001', 'A', 'A1', 'F1', 'SUB-1', 'STYLE-A', 'RED', 'S', 'Alpha product'),
+      make('5002', 'A', 'A1', 'F1', 'SUB-2', 'STYLE-B', 'BLUE', 'M', 'Beta product'),
+      make('5003', 'A', 'A2', 'F2', 'SUB-3', 'STYLE-C', 'GREEN', 'S', 'Gamma product'),
+      make('5004', 'B', 'B1', 'G1', 'SUB-4', 'STYLE-D', 'RED', 'S', 'Delta product')
+    ]), 'utf8');
+    await writeCatalog(catalog, []); await writeCatalog(historical, []); await writeCatalog(styleColor, []);
+    const repository = new VsExcelProductRepository(stock, { imageCatalogFilePath: catalog, historicalImageFilePath: historical, styleColorImageFilePath: styleColor }); const service = new VsProductService(repository);
+    const all = service.searchCatalog({ limit: 100 });
+    assert.deepEqual(all.facets.subfamilies, ['SUB-1', 'SUB-2', 'SUB-3', 'SUB-4']);
+    const subOnly = service.searchCatalog({ subfamily: 'SUB-2' });
+    assert.equal(subOnly.total, 1); assert.equal(subOnly.items[0].barcode, '5002'); assert.equal(subOnly.items[0].subfamily, 'SUB-2');
+    assert.deepEqual(subOnly.facets.departments, ['A']); assert.deepEqual(subOnly.facets.sections, ['A1']); assert.deepEqual(subOnly.facets.families, ['F1']); assert.deepEqual(subOnly.facets.subfamilies, ['SUB-1', 'SUB-2', 'SUB-3', 'SUB-4']);
+    const combined = service.searchCatalog({ department: 'A', section: 'A1', family: 'F1', subfamily: 'SUB-1' });
+    assert.equal(combined.total, 1); assert.equal(combined.items[0].barcode, '5001'); assert.deepEqual(combined.facets.subfamilies, ['SUB-1', 'SUB-2']);
+    assert.deepEqual(service.searchCatalog({ department: 'A' }).facets.subfamilies, ['SUB-1', 'SUB-2', 'SUB-3']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('VS totalStock respeta STYLE+COLOR, stock positivo y tallas duplicadas', async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-total-stock-'));
   try {
@@ -190,8 +214,10 @@ test('Explorar catálogo agrupa STYLE+COLOR, filtra, pagina y abre el detalle no
 });
 
 test('VS API returns product and 404 for unknown barcode', async () => {
-  const api = vsProductApi({ getProductByBarcode: async barcode => barcode === '123' ? { barcode } : null, searchCatalog: () => ({ items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [] } }) });
+  const catalogCalls = [];
+  const api = vsProductApi({ getProductByBarcode: async barcode => barcode === '123' ? { barcode } : null, searchCatalog: options => { catalogCalls.push(options); return { items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [], subfamilies: [] } }; } });
   const call = async url => { const result = { status: null, body: '' }; const response = { writeHead(status) { result.status = status; }, setHeader() {}, end(body = '') { result.body = body; } }; await api({ url }, response); return { ...result, json: JSON.parse(result.body) }; };
   assert.equal((await call('/api/vs/products/123')).status, 200); assert.equal((await call('/api/vs/products/999')).status, 404);
-  assert.deepEqual(await call('/api/vs/catalog?q=bras'), { status: 200, body: '{"items":[{"barcode":"123"}],"total":1,"offset":0,"limit":50,"hasMore":false,"facets":{"departments":[],"sections":[],"families":[]}}', json: { items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [] } } });
+  assert.deepEqual(await call('/api/vs/catalog?q=bras&subfamily=mist'), { status: 200, body: '{"items":[{"barcode":"123"}],"total":1,"offset":0,"limit":50,"hasMore":false,"facets":{"departments":[],"sections":[],"families":[],"subfamilies":[]}}', json: { items: [{ barcode: '123' }], total: 1, offset: 0, limit: 50, hasMore: false, facets: { departments: [], sections: [], families: [], subfamilies: [] } } });
+  assert.equal(catalogCalls[0].query, 'bras'); assert.equal(catalogCalls[0].subfamily, 'mist');
 });

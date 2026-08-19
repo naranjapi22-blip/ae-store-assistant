@@ -9,6 +9,7 @@ export function vsProductApi(service) {
           department: requestUrl.searchParams.get('department') || '',
           section: requestUrl.searchParams.get('section') || '',
           family: requestUrl.searchParams.get('family') || '',
+          subfamily: requestUrl.searchParams.get('subfamily') || '',
           offset: requestUrl.searchParams.get('offset') || 0,
           limit: requestUrl.searchParams.get('limit') || 50
         });

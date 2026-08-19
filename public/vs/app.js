@@ -13,6 +13,7 @@ const catalogQuery = document.querySelector('#catalog-query');
 const catalogDepartment = document.querySelector('#catalog-department');
 const catalogSection = document.querySelector('#catalog-section');
 const catalogFamily = document.querySelector('#catalog-family');
+const catalogSubfamily = document.querySelector('#catalog-subfamily');
 const catalogMessage = document.querySelector('#catalog-message');
 const catalogResults = document.querySelector('#catalog-results');
 const catalogMore = document.querySelector('#catalog-more');
@@ -81,19 +82,19 @@ const renderFacets = facets => {
     select.innerHTML = `<option value="">${select === catalogDepartment ? 'Todos' : 'Todas'}</option>${(values || []).map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
     select.value = allowed.has(current) ? current : '';
   };
-  fill(catalogDepartment, facets.departments); fill(catalogSection, facets.sections); fill(catalogFamily, facets.families);
+  fill(catalogDepartment, facets.departments); fill(catalogSection, facets.sections); fill(catalogFamily, facets.families); fill(catalogSubfamily, facets.subfamilies);
 };
 
 const renderCatalogItems = items => items.map(item => `<article class="catalog-card"><button class="catalog-card-button" type="button" data-catalog-barcode="${escapeHtml(item.barcode)}"><div class="catalog-card-image">${item.image ? `<img src="${escapeHtml(item.image)}" alt="Imagen de ${escapeHtml(item.description)}"><span class="placeholder" hidden>Imagen no disponible</span>` : '<span class="placeholder">Imagen no disponible</span>'}</div><div class="catalog-card-details"><p class="eyebrow">${escapeHtml(item.style || 'STYLE no disponible')}</p><h3>${escapeHtml(item.description || 'Producto VS')}</h3><p><strong>${escapeHtml(item.color || 'Color no disponible')}</strong></p><span>${escapeHtml(item.stock)} unidades · ${escapeHtml(item.availableSizes)} tallas</span></div></button></article>`).join('');
 
 const loadCatalog = async (reset = true) => {
   const offset = reset ? 0 : catalogState.offset + catalogState.limit;
-  const params = new URLSearchParams({ q: catalogQuery.value.trim(), department: catalogDepartment.value, section: catalogSection.value, family: catalogFamily.value, offset: String(offset), limit: String(catalogState.limit) });
+  const params = new URLSearchParams({ q: catalogQuery.value.trim(), department: catalogDepartment.value, section: catalogSection.value, family: catalogFamily.value, subfamily: catalogSubfamily.value, offset: String(offset), limit: String(catalogState.limit) });
   catalogMessage.textContent = 'Cargando catálogo…';
   try {
     const response = await fetch(`/api/vs/catalog?${params}`); const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'No se pudo cargar el catálogo');
-    renderFacets(data.facets || { departments: [], sections: [], families: [] });
+    renderFacets(data.facets || { departments: [], sections: [], families: [], subfamilies: [] });
     catalogState = { offset: data.offset, limit: data.limit, hasMore: data.hasMore };
     if (reset) catalogResults.innerHTML = renderCatalogItems(data.items); else catalogResults.insertAdjacentHTML('beforeend', renderCatalogItems(data.items));
     catalogMessage.textContent = `${data.total} productos STYLE + COLOR disponibles`;
@@ -107,7 +108,8 @@ function showScanner() { catalogView.hidden = true; scannerView.hidden = false; 
 
 form.addEventListener('submit', event => { event.preventDefault(); returnToCatalog = false; loadProduct(input.value.trim(), true, false); });
 catalogToggle.addEventListener('click', openCatalog); backScanner.addEventListener('click', showScanner); catalogForm.addEventListener('submit', event => { event.preventDefault(); loadCatalog(true); }); catalogMore.addEventListener('click', () => loadCatalog(false));
-catalogDepartment.addEventListener('change', () => { catalogSection.value = ''; catalogFamily.value = ''; loadCatalog(true); });
-catalogSection.addEventListener('change', () => { catalogFamily.value = ''; loadCatalog(true); });
-catalogFamily.addEventListener('change', () => loadCatalog(true));
+catalogDepartment.addEventListener('change', () => { catalogSection.value = ''; catalogFamily.value = ''; catalogSubfamily.value = ''; loadCatalog(true); });
+catalogSection.addEventListener('change', () => { catalogFamily.value = ''; catalogSubfamily.value = ''; loadCatalog(true); });
+catalogFamily.addEventListener('change', () => { catalogSubfamily.value = ''; loadCatalog(true); });
+catalogSubfamily.addEventListener('change', () => loadCatalog(true));
 focusScanner();
