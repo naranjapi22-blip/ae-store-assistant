@@ -11,7 +11,6 @@ export const EXCLUDED_PROMOTION_CATEGORIES = Object.freeze({
   3: 'internal',
   4: 'internal',
   541: 'partner',
-  361: 'clearance',
   620: 'clearance',
   621: 'clearance',
   622: 'clearance'

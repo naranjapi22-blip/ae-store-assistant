@@ -158,14 +158,23 @@ test('exclusiones explícitas por ID clasifican categorías conocidas', () => {
     3: 'internal',
     4: 'internal',
     541: 'partner',
-    361: 'clearance',
     620: 'clearance',
     621: 'clearance',
     622: 'clearance'
   });
 
-  for (const id of [2, 3, 4, 361, 541, 620, 621, 622]) {
+  for (const id of [2, 3, 4, 541, 620, 621, 622]) {
     assert.equal(isExcludedPromotion({ id, description: 'Promoción comercial' }), true, `ID ${id}`);
+  }
+});
+
+test('la promociÃ³n comercial 70% vigente no queda excluida por clearance', () => {
+  assert.equal(isExcludedPromotion({ id: 361, description: '70% OFF 2025 EOSS CRI' }), false);
+});
+
+test('las promociones clearance conocidas siguen excluidas', () => {
+  for (const id of [620, 621, 622]) {
+    assert.equal(isExcludedPromotion({ id, description: 'PromociÃ³n comercial' }), true, `ID ${id}`);
   }
 });
 

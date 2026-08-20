@@ -5,6 +5,18 @@ import vm from 'node:vm';
 
 const appSource = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 
+test('las tarjetas de promociones abren la ficha normal por REFERENCIA_STYLO', () => {
+  assert.match(appSource, /dataset\.promotionReference = reference/);
+  assert.match(appSource, /openProductFromPromotion\(button\.dataset\.promotionReference\)/);
+  assert.match(appSource, /setMode\('query'\);\s*loadReference\(reference\);/);
+});
+
+test('la vista de productos promocionales renderiza los totales del conjunto filtrado', () => {
+  assert.match(appSource, /promotion-result-summary/);
+  assert.match(appSource, /data\.totalReferences/);
+  assert.match(appSource, /data\.totalUnits/);
+});
+
 class FakeClassList {
   constructor() { this.values = new Set(); }
   add(...values) { values.forEach(value => this.values.add(value)); }

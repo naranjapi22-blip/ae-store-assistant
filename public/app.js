@@ -20,8 +20,10 @@ let connectionValidated = false;
 const modeButtons = document.querySelectorAll('[data-mode]');
 const catalogTools = document.querySelector('#catalog-tools');
 const catalogExplorer = document.querySelector('#catalog-explorer');
+const promotionsView = document.querySelector('#promotions-view');
 let searchMode = 'query';
 const catalogSelection = { department: '', section: '', family: '' };
+const promotionState = { selected: null, page: 1, filters: { search: '', department: '', section: '', family: '' } };
 
 const setConfigurationMessage = (text, type = '') => {
   configurationMessage.textContent = text;
@@ -340,18 +342,147 @@ const loadSimilarProducts = async reference => {
   } catch { container.hidden = true; container.innerHTML = ''; }
 };
 
+const promotionFetch = async path => {
+  const response = await fetch(path);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'No se pudieron cargar las promociones');
+  return data;
+};
+
+const numberFormat = value => new Intl.NumberFormat('es-CR').format(Number(value) || 0);
+
+const promotionLabel = promotion => promotion.requiresValidation
+  ? (promotion.conditionLabel || 'Validar condiciones en caja')
+  : promotion.type === 'percentage'
+    ? `${promotion.percentage}% de descuento`
+    : promotion.type === 'fixed_price'
+      ? `Precio especial ${formatPrice(promotion.promotionalPrice)}`
+      : 'Promoción vigente';
+
+const renderPromotionSummary = data => {
+  const promotions = Array.isArray(data.promotions) ? data.promotions : [];
+  const totals = data.totals || {};
+  promotionsView.innerHTML = `<section class="promotion-dashboard"><div class="section-heading"><div><p class="eyebrow">INVENTARIO LOCAL</p><h2>Promociones activas</h2></div><span class="keyboard-hint">Solo tienda configurada</span></div><div class="promotion-total-grid"><div><strong>${numberFormat(promotions.length)}</strong><span>promociones activas</span></div><div><strong>${numberFormat(totals.referenceCount)}</strong><span>referencias con stock</span></div><div><strong>${numberFormat(totals.stockUnits)}</strong><span>unidades en promoción</span></div></div>${promotions.length ? `<div class="promotion-card-grid">${promotions.map(promotion => `<article class="promotion-card"><div><p class="eyebrow">${escapeHtml(promotion.type === 'percentage' ? 'DESCUENTO' : promotion.type === 'fixed_price' ? 'PRECIO ESPECIAL' : 'PROMOCIÓN')}</p><h3>${escapeHtml(promotion.description || 'Promoción vigente')}</h3><p class="promotion-benefit">${escapeHtml(promotionLabel(promotion))}</p></div><div class="promotion-card-stats"><span><strong>${numberFormat(promotion.referenceCount)}</strong> referencias</span><span><strong>${numberFormat(promotion.stockUnits)}</strong> unidades</span></div>${promotion.requiresValidation ? '<p class="promotion-validation">Validar condiciones en caja</p>' : ''}<button class="secondary-button" type="button" data-promotion-id="${escapeHtml(promotion.id)}">Ver productos</button></article>`).join('')}</div>` : '<div class="empty-state"><h2>No hay promociones aplicables</h2><p>No se encontraron promociones vigentes con stock positivo en esta tienda.</p></div>'}</section>`;
+  promotionsView.querySelectorAll('[data-promotion-id]').forEach(button => button.addEventListener('click', () => openPromotion(Number(button.dataset.promotionId))));
+};
+
+const promotionOptions = (select, values, placeholder, selected = '') => {
+  select.innerHTML = `<option value="">${placeholder}</option>${values.map(value => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(value)}</option>`).join('')}`;
+  select.disabled = false;
+};
+
+const loadPromotionFilters = async () => {
+  const department = promotionsView.querySelector('#promotion-department');
+  const section = promotionsView.querySelector('#promotion-section');
+  const family = promotionsView.querySelector('#promotion-family');
+  if (!department) return;
+  try {
+    const data = await promotionFetch('/api/catalog/departments');
+    promotionOptions(department, data.departments || [], 'Todos los departamentos', promotionState.filters.department);
+    department.addEventListener('change', async () => {
+      promotionState.filters.department = department.value; promotionState.filters.section = ''; promotionState.filters.family = '';
+      section.disabled = true; family.disabled = true;
+      const sections = await promotionFetch(`/api/catalog/sections?department=${encodeURIComponent(department.value)}`);
+      promotionOptions(section, sections.sections || [], 'Todas las secciones');
+      promotionOptions(family, [], 'Todas las familias');
+    });
+    section.addEventListener('change', async () => {
+      promotionState.filters.section = section.value; promotionState.filters.family = '';
+      family.disabled = true;
+      const families = await promotionFetch(`/api/catalog/families?department=${encodeURIComponent(department.value)}&section=${encodeURIComponent(section.value)}`);
+      promotionOptions(family, families.families || [], 'Todas las familias');
+    });
+    family.addEventListener('change', () => { promotionState.filters.family = family.value; });
+  } catch { /* Los filtros siguen disponibles aunque el catálogo no cargue. */ }
+};
+
+const renderPromotionDetail = () => {
+  const promotion = promotionState.selected;
+  promotionsView.innerHTML = `<section class="promotion-dashboard"><div class="section-heading"><div><p class="eyebrow">PROMOCIÓN</p><h2>${escapeHtml(promotion.description || 'Productos promocionados')}</h2><p class="promotion-detail-label">${escapeHtml(promotionLabel(promotion))}</p></div><button id="promotion-back" class="catalog-back" type="button">Volver a promociones</button></div><form id="promotion-filters" class="promotion-filters"><label>Buscar<input name="search" placeholder="Referencia o descripción" value="${escapeHtml(promotionState.filters.search)}"></label><label>Departamento<select id="promotion-department" name="department" disabled><option>Todos los departamentos</option></select></label><label>Sección<select id="promotion-section" name="section" disabled><option>Todas las secciones</option></select></label><label>Familia<select id="promotion-family" name="family" disabled><option>Todas las familias</option></select></label><button class="primary-button" type="submit">Filtrar</button></form><div id="promotion-products" class="promotion-products"><p class="catalog-loading">Cargando productos...</p></div><div id="promotion-pagination" class="promotion-pagination"></div></section>`;
+  promotionsView.querySelector('#promotion-back').addEventListener('click', loadPromotionSummary);
+  const resultSummary = document.createElement('div');
+  resultSummary.id = 'promotion-result-summary';
+  resultSummary.className = 'promotion-result-summary';
+  resultSummary.setAttribute('aria-live', 'polite');
+  promotionsView.querySelector('#promotion-products').before(resultSummary);
+  promotionsView.querySelector('#promotion-filters').addEventListener('submit', event => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    promotionState.filters = { search: String(formData.get('search') || '').trim(), department: String(formData.get('department') || ''), section: String(formData.get('section') || ''), family: String(formData.get('family') || '') };
+    promotionState.page = 1;
+    loadPromotionProducts();
+  });
+  loadPromotionFilters();
+  loadPromotionProducts();
+};
+
+const renderPromotionProducts = data => {
+  const container = promotionsView.querySelector('#promotion-products');
+  const products = data.products || [];
+  const resultSummary = promotionsView.querySelector('#promotion-result-summary');
+  if (resultSummary) resultSummary.innerHTML = `<strong>${numberFormat(data.totalReferences)}</strong> referencias <strong>${numberFormat(data.totalUnits)}</strong> unidades`;
+  container.innerHTML = products.length ? `<div class="promotion-product-grid">${products.map(product => `<article class="promotion-product-card"><div class="promotion-product-image"><img src="${escapeHtml(product.image || '')}" alt="" loading="lazy"><span>AE</span></div><div><h3>${escapeHtml(product.description)}</h3>${product.additionalDescription ? `<p>${escapeHtml(product.additionalDescription)}</p>` : ''}<p>${escapeHtml(product.colorDescription || product.colorSpanish || product.color || 'Color no disponible')}</p><p>Ref: ${escapeHtml(product.REFERENCIA_STYLO)}</p><div class="promotion-prices"><strong>${escapeHtml(formatPrice(product.price))}</strong>${product.promotionalPrice != null ? `<strong class="promotion-price">${escapeHtml(formatPrice(product.promotionalPrice))}</strong>` : ''}</div>${product.requiresValidation ? `<p class="promotion-validation">${escapeHtml(product.conditionLabel || 'Validar condiciones en caja')}</p>` : ''}<div class="result-footer"><span>Stock: ${numberFormat(product.stockTotal)}</span><span>${numberFormat(product.sizesWithStock)} tallas</span></div></div></article>`).join('')}</div>` : '<div class="empty-state"><h2>No hay productos para estos filtros</h2><p>Prueba con otra referencia o categoría.</p></div>';
+  container.querySelectorAll('img').forEach(img => img.addEventListener('error', () => { img.hidden = true; img.nextElementSibling.hidden = false; }));
+  container.querySelectorAll('.promotion-product-card').forEach((card, index) => {
+    const reference = products[index]?.REFERENCIA_STYLO;
+    if (!reference) return;
+    const button = document.createElement('button');
+    button.className = 'secondary-button';
+    button.type = 'button';
+    button.textContent = 'Ver producto';
+    button.dataset.promotionReference = reference;
+    card.lastElementChild.append(button);
+  });
+  container.querySelectorAll('[data-promotion-reference]').forEach(button => button.addEventListener('click', () => openProductFromPromotion(button.dataset.promotionReference)));
+  const pagination = promotionsView.querySelector('#promotion-pagination');
+  pagination.innerHTML = `<button class="secondary-button" type="button" ${data.page <= 1 ? 'disabled' : ''} data-page="${data.page - 1}">Anterior</button><span>Página ${data.page}</span><button class="secondary-button" type="button" ${data.hasMore ? '' : 'disabled'} data-page="${data.page + 1}">Siguiente</button>`;
+  pagination.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => { promotionState.page = Number(button.dataset.page); loadPromotionProducts(); }));
+};
+
+const loadPromotionProducts = async () => {
+  if (!promotionState.selected) return;
+  const query = new URLSearchParams({ page: String(promotionState.page), limit: '40' });
+  Object.entries(promotionState.filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+  try { renderPromotionProducts(await promotionFetch(`/api/promotions/${promotionState.selected.id}/products?${query}`)); }
+  catch (error) { promotionsView.querySelector('#promotion-products').innerHTML = `<div class="empty-state error-state"><h2>${escapeHtml(error.message)}</h2></div>`; }
+};
+
+const openPromotion = promotionId => {
+  promotionState.selected = (promotionState.all || []).find(item => Number(item.id) === promotionId) || null;
+  if (!promotionState.selected) return;
+  promotionState.page = 1;
+  renderPromotionDetail();
+};
+
+const loadPromotionSummary = async () => {
+  promotionState.selected = null; promotionState.page = 1; promotionState.filters = { search: '', department: '', section: '', family: '' };
+  promotionsView.hidden = false; promotionsView.innerHTML = '<div class="empty-state"><p>Cargando promociones...</p></div>';
+  try {
+    const data = await promotionFetch('/api/promotions');
+    promotionState.all = data.promotions || [];
+    renderPromotionSummary(data);
+  } catch (error) { promotionsView.innerHTML = `<div class="empty-state error-state"><h2>${escapeHtml(error.message)}</h2></div>`; }
+};
+
 const setMode = mode => {
   searchMode = mode;
   modeButtons.forEach(button => { const active = button.dataset.mode === mode; button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active)); });
   const querying = mode === 'query';
+  const promotions = mode === 'promotions';
   document.querySelector('#search-title').textContent = querying ? 'Consultar producto' : 'Explorar catálogo';
   input.placeholder = 'Escanee o ingrese código, referencia o STYLE';
   form.querySelector('.primary-button').textContent = 'Consultar';
   catalogTools.hidden = mode !== 'catalog';
   form.hidden = !querying;
-  catalogExplorer.hidden = querying;
+  document.querySelector('#search-title').parentElement.parentElement.hidden = promotions;
+  document.querySelector('.keyboard-hint').hidden = promotions;
+  message.hidden = promotions;
+  result.hidden = promotions;
+  promotionsView.hidden = !promotions;
+  catalogExplorer.hidden = querying || promotions;
   if (querying) focusScanner();
-  else { result.innerHTML = ''; loadDepartments(); }
+  else if (mode === 'catalog') { result.innerHTML = ''; loadDepartments(); }
+  else if (promotions) loadPromotionSummary();
 };
 
 modeButtons.forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
@@ -444,6 +575,11 @@ const loadReference = async reference => {
     renderProduct(data); setMessage('Variante cargada', 'is-success');
   } catch (error) { setMessage(error.message || 'Error de consulta', 'is-error'); }
   finally { setLoading(false); focusScanner(); }
+};
+
+const openProductFromPromotion = reference => {
+  setMode('query');
+  loadReference(reference);
 };
 
 clearButton.addEventListener('click', () => { input.value = ''; clearButton.hidden = true; result.innerHTML = ''; setMessage('Listo para consultar'); focusScanner(); });

@@ -6,7 +6,8 @@ import {
   evaluatePromotionGroup,
   isExcludedPromotion,
   isPromotionCurrent,
-  parsePromotionAction
+  parsePromotionAction,
+  SUPPORTED_PROMOTION_FIELDS
 } from '../promotion/PromotionRules.js';
 
 const clean = value => value == null ? '' : String(value).trim();
@@ -359,6 +360,427 @@ const promotionParamsFor = ({ warehouse, tariff, articleCode }) => ({
   articleCode: { type: sql.Int, value: Number.isInteger(Number(articleCode)) ? Number(articleCode) : null }
 });
 
+const DASHBOARD_ACTIVE_PROMOTIONS = `
+FROM dbo.PROMOCIONES P
+WHERE (
+        P.IDTARIFAV = @tariff
+        OR EXISTS (
+            SELECT 1 FROM dbo.PROMOCIONESTARIFAS PT
+            WHERE PT.IDPROMOCION = P.IDPROMOCION AND PT.IDTARIFAV = @tariff
+        )
+    )
+  AND (P.FECHAINICIAL IS NULL OR CAST(P.FECHAINICIAL AS date) <= CAST(SYSDATETIME() AS date))
+  AND (P.FECHAFINAL IS NULL OR CAST(P.FECHAFINAL AS date) >= CAST(SYSDATETIME() AS date))
+  AND (P.HORAINICIAL IS NULL OR CAST(SYSDATETIME() AS time) >= CAST(P.HORAINICIAL AS time))
+  AND (P.HORAFINAL IS NULL OR CAST(SYSDATETIME() AS time) <= CAST(P.HORAFINAL AS time))
+  AND (P.HORAINICIAL IS NULL OR P.HORAFINAL IS NULL OR CAST(P.HORAINICIAL AS time) <= CAST(P.HORAFINAL AS time))
+  AND (P.DIASSEMANA IS NULL OR LTRIM(RTRIM(P.DIASSEMANA)) IN ('', '1111111'))
+  AND (
+        NOT EXISTS (SELECT 1 FROM dbo.PROMOCIONESGRUPOSALMACEN PGS WHERE PGS.IDPROMOCION = P.IDPROMOCION)
+        OR EXISTS (
+            SELECT 1
+            FROM dbo.PROMOCIONESGRUPOSALMACEN PGS
+            INNER JOIN dbo.GRUPOSALMACENLIN GAL
+                ON GAL.IDGRUPO = PGS.IDGRUPO AND GAL.CODALMACEN = @warehouse
+            WHERE PGS.IDPROMOCION = P.IDPROMOCION
+        )
+    )`;
+
+const DASHBOARD_CANDIDATE = alias => `(
+    EXISTS (
+        SELECT 1 FROM dbo.ARTICPROMOCION AD
+        WHERE AD.CODARTICULO = A.CODARTICULO AND AD.IDPROMOCION = ${alias}.IDPROMOCION
+    )
+    OR EXISTS (
+        SELECT 1 FROM dbo.ELEMENTOSGRUPO EG
+        WHERE EG.CODARTICULO = A.CODARTICULO AND EG.IDGRUPO = ${alias}.IDGRUPO
+    )
+)`;
+
+const DASHBOARD_CTES = `
+WITH ActivePromotions AS (
+    SELECT P.*
+    ${DASHBOARD_ACTIVE_PROMOTIONS}
+), PromotionActions AS (
+    SELECT IDPROMOCION,
+           COUNT(DISTINCT IDACCION) AS actionCount,
+           MAX(TIPOACCION) AS actionType,
+           MAX(VALOR) AS actionValue
+    FROM dbo.ACCIONESPROMOCION
+    GROUP BY IDPROMOCION
+), EligiblePromotionProducts AS (
+    SELECT DISTINCT
+        P.IDPROMOCION AS promotionId,
+        A.CODARTICULO AS articleCode,
+        CL.REFERENCIA_STYLO AS ref,
+        A.DESCRIPCION AS description,
+        A.DESCRIPADIC AS additionalDescription,
+        CL.COLORDESC AS colorDescription,
+        CL.COLOR_ESP AS colorSpanish,
+        L.COLOR AS color,
+        L.TALLA AS size,
+        PV.PNETO AS price,
+        COALESCE(ST.STOCK, 0) AS stock,
+        A.DPTO AS departmentCode,
+        A.SECCION AS sectionCode,
+        A.FAMILIA AS familyCode,
+        D.DESCRIPCION AS department,
+        S.DESCRIPCION AS section,
+        F.DESCRIPCION AS family
+    FROM ActivePromotions P
+    INNER JOIN dbo.ARTICULOS A ON ${DASHBOARD_CANDIDATE('P')}
+    INNER JOIN dbo.ARTICULOSCAMPOSLIBRES CL ON CL.CODARTICULO = A.CODARTICULO
+    INNER JOIN dbo.ARTICULOSLIN L ON L.CODARTICULO = A.CODARTICULO
+    LEFT JOIN dbo.STOCKS ST
+        ON ST.CODARTICULO = A.CODARTICULO
+       AND ST.TALLA = L.TALLA
+       AND ST.COLOR = L.COLOR
+       AND ST.CODALMACEN = @warehouse
+    ${PRICE_APPLY}
+    LEFT JOIN dbo.DEPARTAMENTO D ON D.NUMDPTO = A.DPTO
+    LEFT JOIN dbo.SECCIONES S ON S.NUMDPTO = A.DPTO AND S.NUMSECCION = A.SECCION
+    LEFT JOIN dbo.FAMILIAS F ON F.NUMDPTO = A.DPTO AND F.NUMSECCION = A.SECCION AND F.NUMFAMILIA = A.FAMILIA
+    WHERE CL.REFERENCIA_STYLO IS NOT NULL
+      AND COALESCE(ST.STOCK, 0) > 0
+)`;
+
+// El resumen no necesita variantes, precios ni jerarquía de catálogo. Mantener
+// esta consulta separada evita repetir el CTE pesado usado por la vista de
+// productos y permite reducir STOCKS antes de resolver las promociones.
+const SUMMARY_PROMOTION_FIELDS = `
+    P.IDPROMOCION AS promotionId,
+    P.PRIORIDAD AS priority,
+    P.DESCRIPCION AS promotionDescription,
+    P.FECHAINICIAL AS startDate,
+    P.FECHAFINAL AS endDate,
+    P.HORAINICIAL AS startTime,
+    P.HORAFINAL AS endTime,
+    P.DIASSEMANA AS weekDays,
+    P.CLIENTEOBLIGATORIO AS clientRequired,
+    P.IDGRUPOCLIENTES AS clientGroup,
+    P.EANCUPON AS couponEan,
+    P.CUPONSERIALIZADO AS serializedCoupon,
+    P.VALIDACIONEXTERNA AS externalValidation,
+    P.MANUAL AS manualPromotion,
+    P.PEDIRCUPONSERIALIZADO AS requestSerializedCoupon,
+    P.APLICARTIPOTERMINAL AS terminalTypeRequired,
+    P.APLICARDELIVERY AS deliveryPromotion,
+    P.DTOSASFORMAPAGO AS paymentMethodDiscount,
+    P.CODFORMAPAGODTOS AS paymentMethodCode,
+    P.CUMPLEANYOS AS birthdayRequired,
+    P.APLICARNVECES AS applyCount,
+    P.APLICARNVECESPORCLIENTE AS applyCountPerClient,
+    P.APLICARNVECESPORCLIENTECADAPERIODO AS applyCountPerClientPeriod,
+    P.APLICARNVECESPORCLIENTESINCONEX AS applyCountPerClientOffline,
+    P.CUMPLEANYOSXDIASANTES AS birthdayDaysBefore,
+    P.CUMPLEANYOSXDIASDESPUES AS birthdayDaysAfter,
+    P.NUMEROARTICULOS AS articleCount,
+    P.IMPORTEMINIMO AS minimumAmount,
+    P.TIPOAPLICACION AS applicationType,
+    P.CONDICIONAPLICACION AS applicationCondition,
+    P.MOMENTOAPLICACION AS applicationMoment`;
+
+const SUMMARY_CTES = `
+WITH ActivePromotions AS (
+    SELECT ${SUMMARY_PROMOTION_FIELDS.replace(/P\./g, '')}, P.IDGRUPO
+    ${DASHBOARD_ACTIVE_PROMOTIONS}
+), PromotionActions AS (
+    SELECT AP.IDPROMOCION,
+           COUNT(DISTINCT AP.IDACCION) AS actionCount,
+           MAX(AP.TIPOACCION) AS actionType,
+           MAX(AP.VALOR) AS actionValue
+    FROM dbo.ACCIONESPROMOCION AP
+    INNER JOIN ActivePromotions P ON P.promotionId = AP.IDPROMOCION
+    GROUP BY AP.IDPROMOCION
+), ValidPromotions AS (
+    SELECT P.*, PA.actionCount, PA.actionType, PA.actionValue
+    FROM ActivePromotions P
+    INNER JOIN PromotionActions PA ON PA.IDPROMOCION = P.promotionId
+    WHERE PA.actionCount = 1
+      AND PA.actionType IN (4, 17)
+      AND P.promotionId NOT IN (2, 3, 4, 361, 541, 620, 621, 622)
+      AND UPPER(ISNULL(P.promotionDescription, '')) NOT LIKE '%EMPLEADO%'
+      AND UPPER(ISNULL(P.promotionDescription, '')) NOT LIKE '%MERCADEO%'
+      AND UPPER(ISNULL(P.promotionDescription, '')) NOT LIKE '%MOUNT VIEW SCHOOL%'
+      AND TRY_CONVERT(decimal(18, 4), LEFT(CONVERT(varchar(255), PA.actionValue), CHARINDEX('|', CONVERT(varchar(255), PA.actionValue) + '|') - 1)) IS NOT NULL
+      AND (
+        (PA.actionType = 4 AND TRY_CONVERT(decimal(18, 4), LEFT(CONVERT(varchar(255), PA.actionValue), CHARINDEX('|', CONVERT(varchar(255), PA.actionValue) + '|') - 1)) BETWEEN 0 AND 100)
+        OR (PA.actionType = 17 AND TRY_CONVERT(decimal(18, 4), LEFT(CONVERT(varchar(255), PA.actionValue), CHARINDEX('|', CONVERT(varchar(255), PA.actionValue) + '|') - 1)) >= 0)
+      )
+), PromotionArticleLinks AS (
+    SELECT DISTINCT P.promotionId AS promotionId, AP.CODARTICULO
+    FROM ValidPromotions P
+    INNER JOIN dbo.ARTICPROMOCION AP ON AP.IDPROMOCION = P.promotionId
+    UNION
+    SELECT DISTINCT P.promotionId AS promotionId, EG.CODARTICULO
+    FROM ValidPromotions P
+    INNER JOIN dbo.ELEMENTOSGRUPO EG ON EG.IDGRUPO = P.IDGRUPO
+    WHERE P.IDGRUPO IS NOT NULL
+), StockPositive AS (
+    SELECT ST.CODARTICULO, ST.TALLA, ST.COLOR, ST.STOCK
+    FROM dbo.STOCKS ST
+    WHERE ST.CODALMACEN = @warehouse
+      AND ST.STOCK > 0
+), PromotionReferenceStock AS (
+    SELECT DISTINCT
+        L.promotionId AS promotionId,
+        L.CODARTICULO AS articleCode,
+        CL.REFERENCIA_STYLO AS ref,
+        SP.TALLA AS size,
+        SP.COLOR AS color,
+        SP.STOCK AS stock
+    FROM StockPositive SP
+    INNER JOIN PromotionArticleLinks L ON L.CODARTICULO = SP.CODARTICULO
+    INNER JOIN dbo.ARTICULOSCAMPOSLIBRES CL ON CL.CODARTICULO = SP.CODARTICULO
+    WHERE CL.REFERENCIA_STYLO IS NOT NULL
+), PromotionAggregates AS (
+    SELECT promotionId, COUNT(DISTINCT ref) AS referenceCount, SUM(stock) AS stockUnits
+    FROM PromotionReferenceStock
+    GROUP BY promotionId
+), GlobalReferenceStock AS (
+    SELECT DISTINCT articleCode, ref, size, color, stock
+    FROM PromotionReferenceStock
+), GlobalTotals AS (
+    SELECT COUNT(DISTINCT ref) AS totalReferenceCount, SUM(stock) AS totalStockUnits
+    FROM GlobalReferenceStock
+)`;
+
+const promotionSummaryQuery = `${SUMMARY_CTES}
+SELECT
+    P.*,
+    AG.referenceCount,
+    AG.stockUnits,
+    GT.totalReferenceCount,
+    GT.totalStockUnits,
+    SYSDATETIME() AS serverNow
+FROM PromotionAggregates AG
+INNER JOIN ValidPromotions P ON P.promotionId = AG.promotionId
+CROSS JOIN GlobalTotals GT
+ORDER BY P.priority, P.promotionId`;
+
+const promotionMetadataQuery = `
+SELECT
+    P.IDPROMOCION AS promotionId,
+    P.DESCRIPCION AS promotionDescription,
+    P.IDGRUPO AS promotionGroup,
+    P.FECHAINICIAL AS startDate,
+    P.FECHAFINAL AS endDate,
+    P.HORAINICIAL AS startTime,
+    P.HORAFINAL AS endTime,
+    P.DIASSEMANA AS weekDays,
+    P.IDTARIFAV AS directTariff,
+    P.CLIENTEOBLIGATORIO AS clientRequired,
+    P.IDGRUPOCLIENTES AS clientGroup,
+    P.EANCUPON AS couponEan,
+    P.CUPONSERIALIZADO AS serializedCoupon,
+    P.VALIDACIONEXTERNA AS externalValidation,
+    P.MANUAL AS manualPromotion,
+    P.PEDIRCUPONSERIALIZADO AS requestSerializedCoupon,
+    P.APLICARTIPOTERMINAL AS terminalTypeRequired,
+    P.APLICARDELIVERY AS deliveryPromotion,
+    P.DTOSASFORMAPAGO AS paymentMethodDiscount,
+    P.CODFORMAPAGODTOS AS paymentMethodCode,
+    P.CUMPLEANYOS AS birthdayRequired,
+    P.APLICARNVECES AS applyCount,
+    P.APLICARNVECESPORCLIENTE AS applyCountPerClient,
+    P.APLICARNVECESPORCLIENTECADAPERIODO AS applyCountPerClientPeriod,
+    P.APLICARNVECESPORCLIENTESINCONEX AS applyCountPerClientOffline,
+    P.CUMPLEANYOSXDIASANTES AS birthdayDaysBefore,
+    P.CUMPLEANYOSXDIASDESPUES AS birthdayDaysAfter,
+    P.NUMEROARTICULOS AS articleCount,
+    P.IMPORTEMINIMO AS minimumAmount,
+    P.TIPOAPLICACION AS applicationType,
+    P.CONDICIONAPLICACION AS applicationCondition,
+    P.MOMENTOAPLICACION AS applicationMoment,
+    AP.IDACCION AS actionId,
+    AP.TIPOACCION AS actionType,
+    AP.VALOR AS actionValue,
+    AP.VALOR2 AS actionValue2,
+    C.GRUPOOR AS groupOr,
+    C.GRUPOAND AS groupAnd,
+    C.INCLUIR AS includeRule,
+    C.TABLA AS conditionTable,
+    C.CAMPO AS conditionField,
+    C.OPERADOR AS conditionOperator,
+    C.VALOR AS conditionValue,
+    CASE WHEN P.IDTARIFAV = @tariff OR EXISTS (
+        SELECT 1 FROM dbo.PROMOCIONESTARIFAS PT
+        WHERE PT.IDPROMOCION = P.IDPROMOCION AND PT.IDTARIFAV = @tariff
+    ) THEN 1 ELSE 0 END AS tariffMatch,
+    CASE WHEN (
+        NOT EXISTS (SELECT 1 FROM dbo.PROMOCIONESGRUPOSALMACEN PGS WHERE PGS.IDPROMOCION = P.IDPROMOCION)
+        OR EXISTS (
+            SELECT 1
+            FROM dbo.PROMOCIONESGRUPOSALMACEN PGS
+            INNER JOIN dbo.GRUPOSALMACENLIN GAL
+                ON GAL.IDGRUPO = PGS.IDGRUPO AND GAL.CODALMACEN = @warehouse
+            WHERE PGS.IDPROMOCION = P.IDPROMOCION
+        )
+    ) THEN 1 ELSE 0 END AS warehouseMatch,
+    CASE WHEN (
+        (P.FECHAINICIAL IS NULL OR CAST(P.FECHAINICIAL AS date) <= CAST(SYSDATETIME() AS date))
+        AND (P.FECHAFINAL IS NULL OR CAST(P.FECHAFINAL AS date) >= CAST(SYSDATETIME() AS date))
+        AND (P.HORAINICIAL IS NULL OR CAST(SYSDATETIME() AS time) >= CAST(P.HORAINICIAL AS time))
+        AND (P.HORAFINAL IS NULL OR CAST(SYSDATETIME() AS time) <= CAST(P.HORAFINAL AS time))
+        AND (P.HORAINICIAL IS NULL OR P.HORAFINAL IS NULL OR CAST(P.HORAINICIAL AS time) <= CAST(P.HORAFINAL AS time))
+        AND (P.DIASSEMANA IS NULL OR LTRIM(RTRIM(P.DIASSEMANA)) IN ('', '1111111'))
+    ) THEN 1 ELSE 0 END AS currentMatch,
+    (SELECT COUNT(DISTINCT AD.CODARTICULO)
+     FROM dbo.ARTICPROMOCION AD
+     WHERE AD.IDPROMOCION = P.IDPROMOCION) AS directArticles,
+    (SELECT COUNT(DISTINCT EG.CODARTICULO)
+     FROM dbo.ELEMENTOSGRUPO EG
+     WHERE P.IDGRUPO IS NOT NULL AND EG.IDGRUPO = P.IDGRUPO) AS groupElements,
+    (SELECT COUNT(*)
+     FROM dbo.CONDICIONESGRUPOSARTICULOS C2
+     WHERE P.IDGRUPO IS NOT NULL AND C2.IDGRUPO = P.IDGRUPO) AS groupConditions,
+    (SELECT COUNT(DISTINCT ST.CODARTICULO)
+     FROM dbo.STOCKS ST
+     WHERE ST.CODALMACEN = @warehouse
+       AND ST.STOCK > 0
+       AND (
+           EXISTS (
+               SELECT 1 FROM dbo.ARTICPROMOCION AD2
+               WHERE AD2.IDPROMOCION = P.IDPROMOCION AND AD2.CODARTICULO = ST.CODARTICULO
+           )
+           OR EXISTS (
+               SELECT 1 FROM dbo.ELEMENTOSGRUPO EG2
+               WHERE P.IDGRUPO IS NOT NULL AND EG2.IDGRUPO = P.IDGRUPO AND EG2.CODARTICULO = ST.CODARTICULO
+           )
+       )) AS stockLinkedArticles,
+    SYSDATETIME() AS serverNow
+FROM dbo.PROMOCIONES P
+LEFT JOIN dbo.ACCIONESPROMOCION AP ON AP.IDPROMOCION = P.IDPROMOCION
+LEFT JOIN dbo.CONDICIONESGRUPOSARTICULOS C ON C.IDGRUPO = P.IDGRUPO
+ORDER BY P.IDPROMOCION, AP.IDACCION, C.GRUPOOR, C.GRUPOAND`;
+
+const promotionArticleUniverseQuery = `
+SELECT DISTINCT
+    ST.CODARTICULO AS articleCode,
+    ST.TALLA AS size,
+    ST.COLOR AS color,
+    ST.STOCK AS stock,
+    A.REFPROVEEDOR AS supplierRef,
+    A.DPTO AS departmentCode,
+    A.SECCION AS sectionCode,
+    A.FAMILIA AS familyCode,
+    A.SUBFAMILIA AS subfamilyCode,
+    A.TEMPORADA AS season,
+    CL.REFERENCIA_STYLO AS ref,
+    A.DESCRIPCION AS description,
+    CL.COLORDESC AS colorDescription,
+    D.DESCRIPCION AS department,
+    S.DESCRIPCION AS section,
+    F.DESCRIPCION AS family,
+    CL.PROMO01 AS promo01,
+    CL.PROMO05 AS promo05,
+    CL.PROMO18 AS promo18,
+    CL.MAYOR_CW AS mayorCw,
+    AD.IDPROMOCION AS directPromotionId,
+    EG.IDGRUPO AS explicitGroupId
+FROM dbo.STOCKS ST
+INNER JOIN dbo.ARTICULOS A ON A.CODARTICULO = ST.CODARTICULO
+    INNER JOIN dbo.ARTICULOSCAMPOSLIBRES CL ON CL.CODARTICULO = ST.CODARTICULO
+    LEFT JOIN dbo.DEPARTAMENTO D ON D.NUMDPTO = A.DPTO
+    LEFT JOIN dbo.SECCIONES S ON S.NUMDPTO = A.DPTO AND S.NUMSECCION = A.SECCION
+    LEFT JOIN dbo.FAMILIAS F ON F.NUMDPTO = A.DPTO AND F.NUMSECCION = A.SECCION AND F.NUMFAMILIA = A.FAMILIA
+LEFT JOIN dbo.ARTICPROMOCION AD ON AD.CODARTICULO = ST.CODARTICULO
+LEFT JOIN dbo.ELEMENTOSGRUPO EG ON EG.CODARTICULO = ST.CODARTICULO
+WHERE ST.CODALMACEN = @warehouse
+  AND ST.STOCK > 0
+  AND CL.REFERENCIA_STYLO IS NOT NULL`;
+
+const promotionProductCandidatesQuery = `${DASHBOARD_CTES}
+SELECT DISTINCT
+    P.IDPROMOCION AS promotionId,
+    A.CODARTICULO AS articleCode,
+    CL.REFERENCIA_STYLO AS ref,
+    A.DESCRIPCION AS description,
+    A.DESCRIPADIC AS additionalDescription,
+    CL.COLORDESC AS colorDescription,
+    CL.COLOR_ESP AS colorSpanish,
+    L.COLOR AS color,
+    L.TALLA AS size,
+    PV.PNETO AS price,
+    ST.STOCK AS stock,
+    A.DPTO AS departmentCode,
+    A.SECCION AS sectionCode,
+    A.FAMILIA AS familyCode,
+    D.DESCRIPCION AS department,
+    S.DESCRIPCION AS section,
+    F.DESCRIPCION AS family
+FROM ActivePromotions P
+INNER JOIN dbo.ARTICULOS A ON (
+    EXISTS (SELECT 1 FROM dbo.ARTICPROMOCION AD WHERE AD.CODARTICULO = A.CODARTICULO AND AD.IDPROMOCION = P.IDPROMOCION)
+    OR EXISTS (SELECT 1 FROM dbo.ELEMENTOSGRUPO EG WHERE EG.CODARTICULO = A.CODARTICULO AND EG.IDGRUPO = P.IDGRUPO)
+    OR P.IDGRUPO IS NOT NULL
+)
+INNER JOIN dbo.ARTICULOSCAMPOSLIBRES CL ON CL.CODARTICULO = A.CODARTICULO
+INNER JOIN dbo.ARTICULOSLIN L ON L.CODARTICULO = A.CODARTICULO
+INNER JOIN dbo.STOCKS ST
+    ON ST.CODARTICULO = A.CODARTICULO
+   AND ST.TALLA = L.TALLA
+   AND ST.COLOR = L.COLOR
+   AND ST.CODALMACEN = @warehouse
+${PRICE_APPLY}
+LEFT JOIN dbo.DEPARTAMENTO D ON D.NUMDPTO = A.DPTO
+LEFT JOIN dbo.SECCIONES S ON S.NUMDPTO = A.DPTO AND S.NUMSECCION = A.SECCION
+LEFT JOIN dbo.FAMILIAS F ON F.NUMDPTO = A.DPTO AND F.NUMSECCION = A.SECCION AND F.NUMFAMILIA = A.FAMILIA
+WHERE P.IDPROMOCION = @promotionId
+  AND CL.REFERENCIA_STYLO IS NOT NULL
+  AND ST.STOCK > 0`;
+
+const promotionProductsQuery = `${DASHBOARD_CTES}, ReferenceProducts AS (
+    SELECT
+        E.promotionId,
+        E.ref,
+        MAX(E.description) AS description,
+        MAX(E.additionalDescription) AS additionalDescription,
+        MAX(E.colorDescription) AS colorDescription,
+        MAX(E.colorSpanish) AS colorSpanish,
+        MAX(E.color) AS color,
+        MAX(E.price) AS price,
+        MAX(E.departmentCode) AS departmentCode,
+        MAX(E.sectionCode) AS sectionCode,
+        MAX(E.familyCode) AS familyCode,
+        MAX(E.department) AS department,
+        MAX(E.section) AS section,
+        MAX(E.family) AS family,
+        SUM(E.stock) AS stockTotal,
+        COUNT(DISTINCT E.size) AS sizesWithStock
+    FROM EligiblePromotionProducts E
+    WHERE E.promotionId = @promotionId
+    GROUP BY E.promotionId, E.ref
+)
+SELECT RP.*, P.DESCRIPCION AS promotionDescription, P.FECHAINICIAL AS startDate, P.FECHAFINAL AS endDate,
+    P.HORAINICIAL AS startTime, P.HORAFINAL AS endTime, P.DIASSEMANA AS weekDays,
+    P.CLIENTEOBLIGATORIO AS clientRequired, P.IDGRUPOCLIENTES AS clientGroup, P.EANCUPON AS couponEan,
+    P.CUPONSERIALIZADO AS serializedCoupon, P.VALIDACIONEXTERNA AS externalValidation,
+    P.MANUAL AS manualPromotion, P.PEDIRCUPONSERIALIZADO AS requestSerializedCoupon,
+    P.APLICARTIPOTERMINAL AS terminalTypeRequired, P.APLICARDELIVERY AS deliveryPromotion,
+    P.DTOSASFORMAPAGO AS paymentMethodDiscount, P.CODFORMAPAGODTOS AS paymentMethodCode,
+    P.CUMPLEANYOS AS birthdayRequired, P.APLICARNVECES AS applyCount,
+    P.APLICARNVECESPORCLIENTE AS applyCountPerClient, P.APLICARNVECESPORCLIENTECADAPERIODO AS applyCountPerClientPeriod,
+    P.APLICARNVECESPORCLIENTESINCONEX AS applyCountPerClientOffline, P.CUMPLEANYOSXDIASANTES AS birthdayDaysBefore,
+    P.CUMPLEANYOSXDIASDESPUES AS birthdayDaysAfter, P.NUMEROARTICULOS AS articleCount,
+    P.IMPORTEMINIMO AS minimumAmount, P.TIPOAPLICACION AS applicationType,
+    P.CONDICIONAPLICACION AS applicationCondition, P.MOMENTOAPLICACION AS applicationMoment,
+    PA.actionCount, PA.actionType, PA.actionValue, SYSDATETIME() AS serverNow
+FROM ReferenceProducts RP
+INNER JOIN ActivePromotions P ON P.IDPROMOCION = RP.promotionId
+LEFT JOIN PromotionActions PA ON PA.IDPROMOCION = RP.promotionId
+WHERE RP.department = COALESCE(NULLIF(@department, ''), RP.department)
+  AND RP.section = COALESCE(NULLIF(@section, ''), RP.section)
+  AND RP.family = COALESCE(NULLIF(@family, ''), RP.family)
+  AND (
+      NULLIF(@search, '') IS NULL
+      OR RP.ref = @search
+      OR RP.description = @search
+      OR RP.colorDescription = @search
+  )
+ORDER BY RP.ref
+OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`;
+
 const mapVariant = row => ({
   CODBARRAS: clean(row.CODBARRAS),
   CODBARRAS2: clean(row.CODBARRAS2),
@@ -510,6 +932,276 @@ const promotionFromRows = (rows, productContext) => {
   return result;
 };
 
+const dashboardPromotionFields = row => ({
+  IDPROMOCION: row.promotionId,
+  DESCRIPCION: row.promotionDescription,
+  FECHAINICIAL: row.startDate,
+  FECHAFINAL: row.endDate,
+  HORAINICIAL: row.startTime,
+  HORAFINAL: row.endTime,
+  DIASSEMANA: row.weekDays,
+  CLIENTEOBLIGATORIO: row.clientRequired,
+  IDGRUPOCLIENTES: row.clientGroup,
+  EANCUPON: row.couponEan,
+  CUPONSERIALIZADO: row.serializedCoupon,
+  VALIDACIONEXTERNA: row.externalValidation,
+  MANUAL: row.manualPromotion,
+  PEDIRCUPONSERIALIZADO: row.requestSerializedCoupon,
+  APLICARTIPOTERMINAL: row.terminalTypeRequired,
+  APLICARDELIVERY: row.deliveryPromotion,
+  DTOSASFORMAPAGO: row.paymentMethodDiscount,
+  CODFORMAPAGODTOS: row.paymentMethodCode,
+  CUMPLEANYOS: row.birthdayRequired,
+  APLICARNVECES: row.applyCount,
+  APLICARNVECESPORCLIENTE: row.applyCountPerClient,
+  APLICARNVECESPORCLIENTECADAPERIODO: row.applyCountPerClientPeriod,
+  APLICARNVECESPORCLIENTESINCONEX: row.applyCountPerClientOffline,
+  CUMPLEANYOSXDIASANTES: row.birthdayDaysBefore,
+  CUMPLEANYOSXDIASDESPUES: row.birthdayDaysAfter,
+  NUMEROARTICULOS: row.articleCount,
+  IMPORTEMINIMO: row.minimumAmount,
+  TIPOAPLICACION: row.applicationType,
+  CONDICIONAPLICACION: row.applicationCondition,
+  MOMENTOAPLICACION: row.applicationMoment
+});
+
+const mapDashboardPromotion = (row, basePrice = null) => {
+  const source = dashboardPromotionFields(row);
+  if (isExcludedPromotion(source) || !isPromotionCurrent(source, row.serverNow || new Date())) return null;
+  if (Number(row.actionCount) !== 1) return null;
+  const action = parsePromotionAction({ actionType: row.actionType, actionValue: row.actionValue });
+  if (action.type === 'unknown') return null;
+  const conditionState = classifyPromotionConditions(source);
+  return {
+    id: numberOrNull(row.promotionId),
+    description: clean(row.promotionDescription),
+    type: action.type,
+    percentage: action.percentage,
+    promotionalPrice: action.promotionalPrice,
+    calculatedPrice: conditionState.requiresValidation ? null : calculatePromotionPrice(action, numberOrNull(basePrice)),
+    requiresValidation: conditionState.requiresValidation,
+    conditionLabel: conditionState.conditionLabel,
+    startDate: row.startDate ?? null,
+    endDate: row.endDate ?? null,
+    referenceCount: numberOrZero(row.referenceCount),
+    stockUnits: numberOrZero(row.stockUnits),
+    priority: numberOrNull(row.priority),
+    source: 'sqlserver'
+  };
+};
+
+const mapDashboardProduct = row => ({
+  image: row.ref ? `https://s7d2.scene7.com/is/image/aeo/${clean(row.ref).replaceAll('-', '_')}_f` : null,
+  REFERENCIA_STYLO: clean(row.ref),
+  description: clean(row.description),
+  additionalDescription: clean(row.additionalDescription),
+  color: clean(row.color),
+  colorDescription: clean(row.colorDescription),
+  colorSpanish: clean(row.colorSpanish),
+  department: clean(row.department),
+  section: clean(row.section),
+  family: clean(row.family),
+  price: numberOrNull(row.price),
+  stockTotal: numberOrZero(row.stockTotal),
+  sizesWithStock: numberOrZero(row.sizesWithStock),
+  promotionId: numberOrNull(row.promotionId),
+  promotionDescription: clean(row.promotionDescription),
+  promotion: mapDashboardPromotion(row, row.price)
+});
+
+const promotionRowKey = values => values.map(value => clean(value)).join('|');
+
+const mapPromotionMetadata = rows => {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (row.promotionId == null) continue;
+    if (!grouped.has(row.promotionId)) grouped.set(row.promotionId, []);
+    grouped.get(row.promotionId).push(row);
+  }
+  return [...grouped.values()].map(group => {
+    const first = group[0];
+    const actions = [...new Map(group
+      .filter(row => row.actionId != null || row.actionType != null)
+      .map(row => [promotionRowKey([row.actionId, row.actionType, row.actionValue, row.actionValue2]), row]))
+      .values()];
+    const conditions = [...new Map(group
+      .filter(row => row.conditionField != null || row.conditionTable != null)
+      .map(row => [promotionRowKey([row.groupOr, row.groupAnd, row.includeRule, row.conditionTable, row.conditionField, row.conditionOperator, row.conditionValue]), row]))
+      .values()];
+    const promotion = dashboardPromotionFields(first);
+    const conditionRules = conditions.map(row => ({
+      groupOr: row.groupOr,
+      groupAnd: row.groupAnd,
+      include: clean(row.includeRule),
+      table: clean(row.conditionTable),
+      field: clean(row.conditionField),
+      operator: clean(row.conditionOperator),
+      value: clean(row.conditionValue)
+    }));
+    const unsupportedConditions = conditions.filter(row => {
+      const table = clean(row.conditionTable);
+      const field = clean(row.conditionField).toUpperCase();
+      const operator = clean(row.conditionOperator).toUpperCase();
+      return !(SUPPORTED_PROMOTION_FIELDS[table]?.includes(field)) || !['=', 'LIKE1'].includes(operator);
+    });
+    const actionResults = actions.map(row => parsePromotionAction({ actionType: row.actionType, actionValue: row.actionValue }));
+    const actionSupported = actions.length === 1 && actionResults[0].type !== 'unknown';
+    const excluded = isExcludedPromotion(promotion);
+    const current = rowFlag(first.currentMatch);
+    const tariffMatch = rowFlag(first.tariffMatch);
+    const warehouseMatch = rowFlag(first.warehouseMatch);
+    const stockLinkedArticles = numberOrZero(first.stockLinkedArticles);
+    let dashboardDecision = 'include_candidate';
+    let reason = 'pasa filtros de promoción y tiene artículos enlazados con stock local positivo';
+    if (!current) {
+      dashboardDecision = 'exclude';
+      reason = 'fuera de fecha, horario o días demostrados';
+    } else if (!tariffMatch) {
+      dashboardDecision = 'exclude';
+      reason = 'no coincide con la tarifa configurada';
+    } else if (!warehouseMatch) {
+      dashboardDecision = 'exclude';
+      reason = 'no coincide con el almacén configurado';
+    } else if (excluded) {
+      dashboardDecision = 'exclude';
+      reason = 'excluida por PromotionRules';
+    } else if (actions.length !== 1) {
+      dashboardDecision = 'exclude';
+      reason = actions.length === 0 ? 'no tiene acción' : 'tiene múltiples acciones';
+    } else if (!actionSupported) {
+      dashboardDecision = 'exclude';
+      reason = 'acción no soportada por PromotionRules';
+    } else if (unsupportedConditions.length > 0) {
+      dashboardDecision = 'exclude';
+      reason = 'contiene condiciones de grupo que PromotionRules no puede evaluar con seguridad';
+    } else if (stockLinkedArticles === 0) {
+      dashboardDecision = 'exclude';
+      reason = conditions.length
+        ? 'solo tiene condiciones de grupo; el resumen no evalúa todavía CONDICIONESGRUPOSARTICULOS contra artículos'
+        : 'no tiene ARTICPROMOCION/ELEMENTOSGRUPO con stock local positivo';
+    }
+    return {
+      promotionId: numberOrNull(first.promotionId),
+      description: clean(first.promotionDescription),
+      promotionGroup: numberOrNull(first.promotionGroup),
+      directArticles: numberOrZero(first.directArticles),
+      groupElements: numberOrZero(first.groupElements),
+      groupConditions: numberOrZero(first.groupConditions),
+      stockLinkedArticles,
+      actions: actions.map(row => ({ id: row.actionId, type: row.actionType, value: clean(row.actionValue), value2: clean(row.actionValue2) })),
+      actionSupported,
+      current,
+      tariffMatch,
+      warehouseMatch,
+      conditionClassification: conditions.length === 0
+        ? 'none'
+        : unsupportedConditions.length === 0 ? 'supported_fields_and_operators' : 'contains_unsupported_fields_or_operators',
+      supportedConditionCount: conditions.length - unsupportedConditions.length,
+      unsupportedConditionCount: unsupportedConditions.length,
+      conditionRules,
+      unsupportedConditions: unsupportedConditions.map(row => {
+        const table = clean(row.conditionTable);
+        const field = clean(row.conditionField).toUpperCase();
+        const operator = clean(row.conditionOperator).toUpperCase();
+        const reasons = [];
+        if (!SUPPORTED_PROMOTION_FIELDS[table]?.includes(field)) reasons.push('tabla/campo no está en SUPPORTED_PROMOTION_FIELDS');
+        if (!['=', 'LIKE1'].includes(operator)) reasons.push('operador no soportado');
+        return {
+          field,
+          operator,
+          value: clean(row.conditionValue),
+          table,
+          reason: reasons.join('; ')
+        };
+      }),
+      promotionConditionClassification: classifyPromotionConditions(promotion),
+      dashboardDecision,
+      reason
+    };
+  });
+};
+
+const rowFlag = value => Number(value) === 1;
+
+const promotionActionFromMetadata = promotion => {
+  const action = promotion?.actions?.length === 1 ? promotion.actions[0] : null;
+  return action ? parsePromotionAction({ actionType: action.type, actionValue: action.value }) : { type: 'unknown', percentage: null, promotionalPrice: null };
+};
+
+const promotionResultFromMetadata = (promotion, basePrice = null) => {
+  const action = promotionActionFromMetadata(promotion);
+  const conditionState = promotion.promotionConditionClassification || {
+    requiresValidation: false,
+    conditionLabel: null,
+    conditionType: null,
+    conditionTypes: []
+  };
+  return {
+    id: promotion.promotionId,
+    description: promotion.description,
+    type: action.type,
+    percentage: action.percentage,
+    promotionalPrice: action.promotionalPrice,
+    calculatedPrice: conditionState.requiresValidation ? null : calculatePromotionPrice(action, basePrice),
+    requiresValidation: conditionState.requiresValidation === true,
+    conditionLabel: conditionState.conditionLabel || null,
+    conditionType: conditionState.conditionType || null,
+    conditionTypes: conditionState.conditionTypes || [],
+    startDate: promotion.startDate ?? null,
+    endDate: promotion.endDate ?? null,
+    priority: null,
+    source: 'sqlserver'
+  };
+};
+
+const articleVariantKey = row => promotionRowKey([row.articleCode, row.size, row.color, row.stock]);
+
+const buildPromotionMembership = (promotions, articleRows) => {
+  const articles = new Map();
+  for (const row of articleRows) {
+    if (numberOrZero(row.stock) <= 0 || !row.ref) continue;
+    const key = articleVariantKey(row);
+    if (!articles.has(key)) {
+      articles.set(key, {
+        ...row,
+        directPromotionIds: new Set(),
+        explicitGroupIds: new Set()
+      });
+    }
+    const article = articles.get(key);
+    if (row.directPromotionId != null) article.directPromotionIds.add(Number(row.directPromotionId));
+    if (row.explicitGroupId != null) article.explicitGroupIds.add(Number(row.explicitGroupId));
+  }
+  const supportedPromotions = promotions.filter(promotion => (
+    promotion.current
+    && promotion.tariffMatch
+    && promotion.warehouseMatch
+    && promotion.actionSupported
+    && promotion.unsupportedConditionCount === 0
+    && !isExcludedPromotion({ IDPROMOCION: promotion.promotionId, DESCRIPCION: promotion.description })
+  ));
+  const matches = new Map(supportedPromotions.map(promotion => [promotion.promotionId, []]));
+  for (const article of articles.values()) {
+    for (const promotion of supportedPromotions) {
+      const directMatch = article.directPromotionIds.has(promotion.promotionId);
+      const explicitGroupMatch = promotion.promotionGroup != null && article.explicitGroupIds.has(promotion.promotionGroup);
+      const dynamicMatch = promotion.promotionGroup != null
+        && promotion.conditionRules.length > 0
+        && evaluatePromotionGroup(promotion.conditionRules.map(rule => ({
+          GRUPOOR: rule.groupOr,
+          GRUPOAND: rule.groupAnd,
+          INCLUIR: rule.include,
+          TABLA: rule.table,
+          CAMPO: rule.field,
+          OPERADOR: rule.operator,
+          VALOR: rule.value
+        })), promotionContextFrom(article));
+      if (directMatch || explicitGroupMatch || dynamicMatch) matches.get(promotion.promotionId).push(article);
+    }
+  }
+  return { promotions: supportedPromotions, matches };
+};
+
 const boolFromEnv = (value, fallback) => {
   if (value == null || value === '') return fallback;
   return ['1', 'true', 'yes', 'si'].includes(String(value).trim().toLowerCase());
@@ -578,6 +1270,15 @@ export class SqlServerProductRepository extends ProductRepository {
 
   commonParams(extra = {}) {
     return { ...paramsFor({ warehouse: this.warehouse, tariff: this.tariff, priceFormat: this.priceFormat }), ...extra };
+  }
+
+  dashboardParams(extra = {}) {
+    return this.commonParams({
+      department: { type: sql.NVarChar(255), value: clean(extra.department?.value ?? extra.department) },
+      section: { type: sql.NVarChar(255), value: clean(extra.section?.value ?? extra.section) },
+      family: { type: sql.NVarChar(255), value: clean(extra.family?.value ?? extra.family) },
+      ...extra
+    });
   }
 
   async findByBarcode(barcode) {
@@ -734,6 +1435,116 @@ export class SqlServerProductRepository extends ProductRepository {
     };
   }
 
+  async getPromotionSummary() {
+    const membership = await this.getPromotionMembership();
+    const promotions = [];
+    const totalVariants = new Map();
+    for (const promotionMetadata of membership.promotions) {
+      const matched = membership.matches.get(promotionMetadata.promotionId) || [];
+      if (!matched.length) continue;
+      const references = new Set(matched.map(article => article.ref));
+      const promotion = promotionResultFromMetadata(promotionMetadata);
+      promotions.push({
+        ...promotion,
+        referenceCount: references.size,
+        stockUnits: matched.reduce((total, article) => total + numberOrZero(article.stock), 0)
+      });
+      for (const article of matched) totalVariants.set(articleVariantKey(article), article);
+    }
+    promotions.sort((left, right) => (left.id ?? Number.MAX_SAFE_INTEGER) - (right.id ?? Number.MAX_SAFE_INTEGER));
+    return {
+      promotions,
+      totals: {
+        referenceCount: new Set([...totalVariants.values()].map(article => article.ref)).size,
+        stockUnits: [...totalVariants.values()].reduce((total, article) => total + numberOrZero(article.stock), 0)
+      }
+    };
+  }
+
+  async getPromotionMembership() {
+    const promotionRows = await this.query(promotionMetadataQuery, this.dashboardParams());
+    const articleRows = await this.query(promotionArticleUniverseQuery, this.dashboardParams());
+    return buildPromotionMembership(mapPromotionMetadata(promotionRows), articleRows);
+  }
+
+  async getPromotionProducts(promotionId, { page = 1, limit = 40, search = '', department = '', section = '', family = '' } = {}) {
+    const parsedPromotion = Number(promotionId);
+    if (!Number.isInteger(parsedPromotion) || parsedPromotion < 1) return { products: [], page: 1, limit: 40, hasMore: false };
+    const membership = await this.getPromotionMembership();
+    const promotionMetadata = membership.promotions.find(item => item.promotionId === parsedPromotion);
+    const matchedKeys = new Set((membership.matches.get(parsedPromotion) || []).map(articleVariantKey));
+    if (!promotionMetadata || matchedKeys.size === 0) return { products: [], page: 1, limit: 40, hasMore: false };
+    const maxResults = maxLimit(limit, 40);
+    const currentPage = Math.min(Math.max(Number(page) || 1, 1), 10000);
+    const offset = (currentPage - 1) * maxResults;
+    const rows = await this.query(promotionProductCandidatesQuery, this.dashboardParams({
+      promotionId: { type: sql.Int, value: parsedPromotion },
+      offset: { type: sql.Int, value: offset },
+      limit: { type: sql.Int, value: maxResults + 1 },
+      department: { type: sql.NVarChar(255), value: clean(department) },
+      section: { type: sql.NVarChar(255), value: clean(section) },
+      family: { type: sql.NVarChar(255), value: clean(family) },
+      search: { type: sql.NVarChar(255), value: clean(search) }
+    }));
+    const filteredMatches = (membership.matches.get(parsedPromotion) || []).filter(row => {
+      if (clean(department) && clean(row.department).toUpperCase() !== clean(department).toUpperCase()) return false;
+      if (clean(section) && clean(row.section).toUpperCase() !== clean(section).toUpperCase()) return false;
+      if (clean(family) && clean(row.family).toUpperCase() !== clean(family).toUpperCase()) return false;
+      const searchValue = clean(search);
+      return !searchValue
+        || clean(row.ref) === searchValue
+        || clean(row.description) === searchValue
+        || clean(row.colorDescription) === searchValue;
+    });
+    const filtered = rows.filter(row => {
+      if (!matchedKeys.has(articleVariantKey(row))) return false;
+      if (clean(department) && clean(row.department).toUpperCase() !== clean(department).toUpperCase()) return false;
+      if (clean(section) && clean(row.section).toUpperCase() !== clean(section).toUpperCase()) return false;
+      if (clean(family) && clean(row.family).toUpperCase() !== clean(family).toUpperCase()) return false;
+      const searchValue = clean(search);
+      return !searchValue
+        || clean(row.ref) === searchValue
+        || clean(row.description) === searchValue
+        || clean(row.colorDescription) === searchValue;
+    });
+    const references = new Map();
+    for (const row of filtered) {
+      if (!references.has(row.ref)) references.set(row.ref, []);
+      references.get(row.ref).push(row);
+    }
+    const products = [...references.entries()].map(([ref, variants]) => {
+      const first = variants[0];
+      const price = numberOrNull(Math.max(...variants.map(row => numberOrNull(row.price) ?? Number.NEGATIVE_INFINITY)));
+      return {
+        image: ref ? `https://s7d2.scene7.com/is/image/aeo/${clean(ref).replaceAll('-', '_')}_f` : null,
+        REFERENCIA_STYLO: clean(ref),
+        description: clean(first.description),
+        additionalDescription: clean(first.additionalDescription),
+        color: clean(first.color),
+        colorDescription: clean(first.colorDescription),
+        colorSpanish: clean(first.colorSpanish),
+        department: clean(first.department),
+        section: clean(first.section),
+        family: clean(first.family),
+        price,
+        stockTotal: variants.reduce((total, row) => total + numberOrZero(row.stock), 0),
+        sizesWithStock: new Set(variants.map(row => clean(row.size))).size,
+        promotionId: parsedPromotion,
+        promotionDescription: promotionMetadata.description,
+        promotion: promotionResultFromMetadata(promotionMetadata, price)
+      };
+    });
+    const hasMore = products.length > offset + maxResults;
+    return {
+      products: products.slice(offset, offset + maxResults),
+      page: currentPage,
+      limit: maxResults,
+      hasMore,
+      totalReferences: new Set(filteredMatches.map(row => row.ref)).size,
+      totalUnits: filteredMatches.reduce((total, row) => total + numberOrZero(row.stock), 0)
+    };
+  }
+
   async close() {
     if (this.pool?.close) await this.pool.close();
     this.pool = null;
@@ -747,5 +1558,8 @@ export const queries = {
   catalogSummaryQuery,
   similarQuery,
   categoryQuery,
-  promotions: PROMOTION_QUERY
+  promotions: PROMOTION_QUERY,
+  promotionSummaryQuery,
+  promotionMetadataQuery,
+  promotionProductsQuery
 };

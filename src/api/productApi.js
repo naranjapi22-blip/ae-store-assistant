@@ -4,6 +4,36 @@ export function productApi(service) {
     const url = new URL(request.url, 'http://localhost');
     const referenceMatch = pathname.match(/^\/api\/products\/reference\/([^/]+)$/);
     const similarMatch = pathname.match(/^\/api\/products\/reference\/([^/]+)\/similar$/);
+    const promotionProductsMatch = pathname.match(/^\/api\/promotions\/([0-9]+)\/products$/);
+    if (pathname === '/api/promotions') {
+      try {
+        const result = await service.getPromotionSummary();
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify({ error: 'No se pudieron cargar las promociones' }));
+      }
+    }
+    if (promotionProductsMatch) {
+      const page = Math.min(Math.max(Number(url.searchParams.get('page')) || 1, 1), 10000);
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 40, 1), 50);
+      try {
+        const result = await service.getPromotionProducts(Number(promotionProductsMatch[1]), {
+          page,
+          limit,
+          search: url.searchParams.get('search')?.trim() || '',
+          department: url.searchParams.get('department')?.trim() || '',
+          section: url.searchParams.get('section')?.trim() || '',
+          family: url.searchParams.get('family')?.trim() || ''
+        });
+        response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify(result));
+      } catch {
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify({ error: 'No se pudieron cargar los productos de la promoción' }));
+      }
+    }
     if (similarMatch) {
       let products;
       try { products = await service.getSimilarProducts(decodeURIComponent(similarMatch[1])); }

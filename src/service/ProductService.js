@@ -127,6 +127,66 @@ export class ProductService {
     return similar.map(row => this.toCatalogSummary(row));
   }
 
+  async getPromotionSummary() {
+    const result = await this.repository.getPromotionSummary();
+    return {
+      promotions: (result?.promotions || []).map(promotion => ({
+        id: promotion.id,
+        description: promotion.description,
+        type: promotion.type,
+        percentage: promotion.percentage,
+        promotionalPrice: promotion.promotionalPrice,
+        requiresValidation: promotion.requiresValidation === true,
+        conditionLabel: promotion.conditionLabel || null,
+        startDate: promotion.startDate,
+        endDate: promotion.endDate,
+        referenceCount: Number(promotion.referenceCount || 0),
+        stockUnits: Number(promotion.stockUnits || 0)
+      })),
+      totals: {
+        referenceCount: Number(result?.totals?.referenceCount || 0),
+        stockUnits: Number(result?.totals?.stockUnits || 0)
+      }
+    };
+  }
+
+  async getPromotionProducts(promotionId, options = {}) {
+    const result = await this.repository.getPromotionProducts(promotionId, {
+      page: options.page,
+      limit: options.limit,
+      search: clean(options.search),
+      department: clean(options.department),
+      section: clean(options.section),
+      family: clean(options.family)
+    });
+    return {
+      products: (result?.products || []).map(product => ({
+        image: product.image,
+        REFERENCIA_STYLO: product.REFERENCIA_STYLO,
+        description: product.description,
+        additionalDescription: product.additionalDescription || '',
+        color: product.color,
+        colorDescription: product.colorDescription || '',
+        colorSpanish: product.colorSpanish || '',
+        price: priceOrNull(product.price),
+        promotionalPrice: product.promotion?.requiresValidation ? null : priceOrNull(product.promotion?.calculatedPrice),
+        promotionDescription: product.promotionDescription,
+        requiresValidation: product.promotion?.requiresValidation === true,
+        conditionLabel: product.promotion?.conditionLabel || null,
+        stockTotal: Number(product.stockTotal || 0),
+        sizesWithStock: Number(product.sizesWithStock || 0),
+        department: product.department,
+        section: product.section,
+        family: product.family
+      })),
+      page: result?.page || 1,
+      limit: result?.limit || 40,
+      hasMore: result?.hasMore === true,
+      totalReferences: Number(result?.totalReferences || 0),
+      totalUnits: Number(result?.totalUnits || 0)
+    };
+  }
+
   toCatalogSummary(row) {
     return {
       image: imageFromReference(row.ref),
