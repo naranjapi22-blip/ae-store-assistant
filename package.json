@@ -8,7 +8,9 @@
   "type": "module",
   "main": "electron/main.cjs",
   "overrides": {
-    "yauzl": "^3.3.1"
+    "yauzl": "^3.3.1",
+    "tar": "^7.5.22",
+    "tmp": "^0.2.6"
   },
   "scripts": {
     "start": "node src/server.js",
