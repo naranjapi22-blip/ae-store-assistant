@@ -13,4 +13,6 @@ export class ProductRepository {
   async getProductsByCategory(_department, _section, _family, _limit = 20) { throw new Error('Not implemented'); }
   async findSimilarProducts(_options) { throw new Error('Not implemented'); }
   async findApplicablePromotions(_productContext) { return []; }
+  async getPromotionSummary() { return { promotions: [], totals: { referenceCount: 0, stockUnits: 0 } }; }
+  async getPromotionProducts(_promotionId, _options = {}) { return { products: [], page: 1, limit: 40, hasMore: false, totalReferences: 0, totalUnits: 0 }; }
 }

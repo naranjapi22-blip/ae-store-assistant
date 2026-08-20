@@ -317,7 +317,7 @@ test('286 y 607 comerciales condicionadas permanecen visibles si el producto es 
 });
 
 test('las exclusiones conocidas por ID no llegan a promotions ni conditionalPromotions', async () => {
-  for (const promotionId of [2, 3, 4, 361, 541, 620, 621, 622]) {
+  for (const promotionId of [2, 3, 4, 541, 620, 621, 622]) {
     const pool = mockPool([promotionRow({
       promotionId,
       promotionDescription: `Promoción comercial ${promotionId}`,
@@ -327,6 +327,17 @@ test('las exclusiones conocidas por ID no llegan a promotions ni conditionalProm
     assert.deepEqual(result.promotions, [], `promotions para ${promotionId}`);
     assert.deepEqual(result.conditionalPromotions, [], `conditionalPromotions para ${promotionId}`);
   }
+});
+
+test('la promoción 70% comercial 361 llega si está vigente y es elegible', async () => {
+  const pool = mockPool([promotionRow({
+    promotionId: 361,
+    promotionDescription: '70% OFF 2025 EOSS CRI',
+    requestSerializedCoupon: 'T'
+  })]);
+  const result = await new SqlServerProductRepository({ pool }).findApplicablePromotions(knownRow());
+  assert.deepEqual(result.promotions, []);
+  assert.deepEqual(result.conditionalPromotions.map(promotion => promotion.id), [361]);
 });
 
 test('las promociones comerciales 286 y 607 siguen permitidas por ID', async () => {
