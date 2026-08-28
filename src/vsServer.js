@@ -41,7 +41,10 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
     repository: bootstrapRepository,
     cache: imageResolutionCache,
     providers: [new RomaniaProvider({ fetchImpl })],
-    concurrency: env.VS_RUNTIME_IMAGE_RESOLVER_CONCURRENCY || 1
+    concurrency: env.VS_RUNTIME_IMAGE_RESOLVER_CONCURRENCY || 1,
+    maxCandidates: env.VS_RUNTIME_IMAGE_RESOLVER_MAX_CANDIDATES || Infinity,
+    checkpointEvery: env.VS_RUNTIME_IMAGE_RESOLVER_CHECKPOINT_EVERY || 10,
+    onProgress: ({ completed, total, candidate, summary }) => console.log(`VS runtime images ${completed}/${total} ${candidate.styleColor} ${JSON.stringify(summary)}`)
   }) : null;
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
