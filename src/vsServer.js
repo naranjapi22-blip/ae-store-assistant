@@ -9,6 +9,8 @@ import { VsRuntimeImageRepository } from './repository/VsRuntimeImageRepository.
 import { VsProductService } from './service/VsProductService.js';
 import { loadEnvironment } from './config/environment.js';
 import { VsImageResolutionCache } from './vs-images/VsImageResolutionCache.js';
+import { VsImageResolver } from './vs-images/VsImageResolver.js';
+import { RomaniaProvider } from './vs-images/providers/RomaniaProvider.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(root, '..');
@@ -16,9 +18,10 @@ const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
 const resolveLocalFile = (value, fallback) => [value, fallback].filter(Boolean)
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file)).find(existsSync);
 const resolveConfiguredPath = value => value ? (path.isAbsolute(value) ? value : path.resolve(projectRoot, value)) : null;
+const enabled = value => ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot, fetchImpl = globalThis.fetch } = {}) => {
   const defaultVsDataFile = file => path.resolve(configuredProjectRoot, '..', '..', 'VSImageTest', file);
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, defaultVsDataFile('vs_inventory_master.json'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
@@ -33,6 +36,13 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
   const repository = imageResolutionCache ? new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache) : bootstrapRepository;
+  const resolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
+  const imageResolver = resolverEnabled ? new VsImageResolver({
+    repository: bootstrapRepository,
+    cache: imageResolutionCache,
+    providers: [new RomaniaProvider({ fetchImpl })],
+    concurrency: env.VS_RUNTIME_IMAGE_RESOLVER_CONCURRENCY || 1
+  }) : null;
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {
@@ -46,13 +56,16 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
       return response.end(content);
     } catch { response.writeHead(404, jsonHeaders); return response.end(JSON.stringify({ error: 'Not found' })); }
   });
-  return { server, service, repository, bootstrapRepository, imageResolutionCache, close: async () => new Promise(resolve => server.close(resolve)) };
+  return { server, service, repository, bootstrapRepository, imageResolutionCache, imageResolver, close: async () => new Promise(resolve => server.close(resolve)) };
 };
 
 export const startVsServer = async options => {
   const application = createVsApplicationServer(options);
   const port = options?.port ?? options?.env?.VS_PORT ?? process.env.VS_PORT ?? 3001;
   await new Promise((resolve, reject) => { application.server.once('error', reject); application.server.listen(port, '127.0.0.1', resolve); });
+  if (application.imageResolver) application.imageResolver.resolveAll()
+    .then(summary => console.log(`VS runtime images: ${JSON.stringify(summary)}`))
+    .catch(error => console.warn(`VS runtime image resolver falló: ${error.message}`));
   return application;
 };
 
