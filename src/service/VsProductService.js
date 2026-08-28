@@ -45,6 +45,7 @@ export class VsProductService {
         stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
         barcode: representative.CODBARRAS,
         image: representative.image ?? null,
+        imageSource: representative.imageSource ?? null,
         scanned: Boolean(scannedBarcode) && items.some(item => item.CODBARRAS === scannedBarcode),
         selected: Boolean(selectedBarcode) && items.some(item => item.CODBARRAS === selectedBarcode),
         description: representative.DESCRIPCION,
@@ -79,6 +80,7 @@ export class VsProductService {
           color: representative.COLOR,
           barcode: representative.CODBARRAS,
           image: representative.image ?? null,
+          imageSource: representative.imageSource ?? null,
           stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
           sizes: this.buildSizes(items)
         };
@@ -96,7 +98,7 @@ export class VsProductService {
     const selectedSize = sizes.find(item => item.selected);
     const totalStock = sizes.reduce((total, item) => total + Number(item.stock ?? 0), 0);
     return {
-      brand: 'VS', image: row.image ?? null, description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
+      brand: 'VS', image: row.image ?? null, imageSource: row.imageSource ?? null, description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
       supplierReference: row.REFPROVEEDOR, color: row.COLOR, scannedSize: scannedVariant?.TALLA ?? null,
       selectedSize: row.TALLA, scannedBarcode: scannedVariant?.CODBARRAS ?? null, selectedBarcode: row.CODBARRAS,
       stock: selectedSize?.stock ?? Number(row.STOCK ?? 0), totalStock, barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
@@ -115,7 +117,7 @@ export class VsProductService {
     if (styles.size > 1) {
       const optionsByStyle = [...new Map(rows.map(row => [clean(row.STYLE), row])).values()]
         .sort((left, right) => clean(left.STYLE).localeCompare(clean(right.STYLE)))
-        .map(row => ({ barcode: row.CODBARRAS, reference: row.REFPROVEEDOR, style: row.STYLE, color: row.COLOR, description: row.DESCRIPCION, image: row.image }));
+        .map(row => ({ barcode: row.CODBARRAS, reference: row.REFPROVEEDOR, style: row.STYLE, color: row.COLOR, description: row.DESCRIPCION, image: row.image, imageSource: row.imageSource ?? null }));
       return { product: null, ambiguous: true, options: optionsByStyle };
     }
     const representative = [...rows].sort((left, right) => {
