@@ -15,7 +15,7 @@ const resolveLocalFile = (value, fallback) => [value, fallback].filter(Boolean)
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file)).find(existsSync);
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
   const defaultVsDataFile = file => path.resolve(configuredProjectRoot, '..', '..', 'VSImageTest', file);
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, defaultVsDataFile('vs_inventory_master.json'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
@@ -25,7 +25,8 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const vsCrPath = vsCrImageFilePath || resolveLocalFile(env.VS_CR_IMAGE_FILE, defaultVsDataFile('vs_cr_refid_images.json'));
   const vsIndiaPath = vsIndiaImageFilePath || resolveLocalFile(env.VS_INDIA_IMAGE_FILE, defaultVsDataFile('vs_india_images.json'));
   const vsMaltaPath = vsMaltaImageFilePath || resolveLocalFile(env.VS_MALTA_IMAGE_FILE, defaultVsDataFile('vs_malta_images.json'));
-  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath });
+  const vsRomaniaPath = vsRomaniaImageFilePath || resolveLocalFile(env.VS_ROMANIA_IMAGE_FILE, defaultVsDataFile('vs_romania_images.json'));
+  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath });
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {

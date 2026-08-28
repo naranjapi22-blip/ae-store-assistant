@@ -16,9 +16,11 @@ const styleColorImages = path.join(vsImageTestRoot, 'style_color_recovery_vs.jso
 const crImages = path.join(vsImageTestRoot, 'vs_cr_refid_images.json');
 const indiaImages = path.join(vsImageTestRoot, 'vs_india_images.json');
 const maltaImages = path.join(vsImageTestRoot, 'vs_malta_images.json');
+const romaniaImages = path.join(vsImageTestRoot, 'vs_romania_images.json');
 const ready = [masterStock, currentImages, historicalImages, styleColorImages, crImages].every(existsSync);
 const indiaReady = [masterStock, currentImages, historicalImages, styleColorImages, crImages, indiaImages].every(existsSync);
 const maltaReady = [masterStock, currentImages, historicalImages, styleColorImages, crImages, indiaImages, maltaImages].every(existsSync);
+const romaniaReady = [masterStock, currentImages, historicalImages, styleColorImages, crImages, indiaImages, maltaImages, romaniaImages].every(existsSync);
 
 const writeJson = (file, data) => writeFile(file, JSON.stringify(data, null, 2), 'utf8');
 
@@ -198,6 +200,76 @@ test('VS carga 667559451976 desde India cuando el cache está presente', { skip:
   assert.equal(repository.metrics().imagesLoaded, 15714);
 });
 
+test('VS loads Romania only from approved records and preserves every prior fallback', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-romania-fallback-'));
+  try {
+    const stock = path.join(dir, 'stock.json');
+    const current = path.join(dir, 'current.json');
+    const historical = path.join(dir, 'historical.json');
+    const styleColor = path.join(dir, 'style-color.json');
+    const cr = path.join(dir, 'cr.json');
+    const india = path.join(dir, 'india.json');
+    const malta = path.join(dir, 'malta.json');
+    const romania = path.join(dir, 'romania.json');
+    const empty = path.join(dir, 'empty.json');
+    const corrupt = path.join(dir, 'corrupt-romania.json');
+    const barcode = suffix => `900000000${String(suffix).padStart(3, '0')}`;
+    const makeStock = (value, index) => ({ barcode: value, barcode2: '', codigoArticulo: `${index}`, referencia: `REF-${index}`, style: `123456${index}`, stylo: `ST-${index}`, descripcion: 'Synthetic product', talla: 'M', color: `C${index}`, temporada: 'TEST', departamento: 'BEAUTY', seccion: 'BODY', familia: 'FRAGRANCE', subfamilia: 'MIST', stock: 1 });
+    const romanianRecord = (value, index, overrides = {}) => ({
+      barcode: value,
+      styleColorNormalized: `123456${index}C${index}`,
+      remoteSku: `123456${index}C${index}`,
+      imageUrl: `https://example.test/romania-${index}.jpg`,
+      classification: 'MATCHED_SAFE',
+      imageValidation: { httpStatus: 200, contentType: 'image/jpeg', placeholder: false, urlContainsExactSku: true },
+      ...overrides
+    });
+    const ids = Object.fromEntries(['current', 'historical', 'styleColor', 'cr', 'india', 'malta', 'romania', 'missing', 'invalid'].map((name, index) => [name, barcode(index + 1)]));
+    await writeJson(stock, Object.values(ids).map((value, index) => makeStock(value, index + 1)));
+    await writeJson(empty, { results: [] });
+    await writeJson(current, { results: [{ barcode: ids.current, clasificacion: 'MATCH_COLOR_ACTUAL', image_url: 'https://example.test/current.jpg', http_status: 200 }] });
+    await writeJson(historical, { results: [{ barcode: ids.historical, clasificacion: 'HISTORICA_RECUPERADA', image_url_historica: 'https://example.test/historical.jpg', http_status: 200 }] });
+    await writeJson(styleColor, { results: [{ barcode: ids.styleColor, clasificacion: 'STYLE_COLOR_RECUPERADO', image: 'https://example.test/style-color.jpg' }] });
+    await writeJson(cr, { results: [{ CODBARRAS: ids.cr, imageUrl: 'https://example.test/cr.jpg', resultado: 'MATCHED' }] });
+    await writeJson(india, { results: [{ CODBARRAS: ids.india, imageUrl: 'https://example.test/india.jpg', evidence: { itemSizeIdMatchesBarcode: true, itemIdMatchesStyleColor: true, masterStyleMatchesStyle: true } }] });
+    await writeJson(malta, { results: [{ barcode: ids.malta, classification: 'MATCHED_SAFE', imageUrl: 'https://example.test/malta.jpg' }] });
+    await writeJson(romania, { results: [
+      ...Object.entries(ids).filter(([name]) => name !== 'missing' && name !== 'invalid').map(([, value], index) => romanianRecord(value, index + 1)),
+      romanianRecord(ids.invalid, 9, { classification: 'NO_IMAGE' }),
+      romanianRecord(barcode(99), 99, { remoteSku: 'DIFFERENT-SKU' })
+    ] });
+
+    const repository = new VsExcelProductRepository(stock, {
+      imageCatalogFilePath: current, historicalImageFilePath: historical, styleColorImageFilePath: styleColor,
+      vsCrImageFilePath: cr, vsIndiaImageFilePath: india, vsMaltaImageFilePath: malta, vsRomaniaImageFilePath: romania
+    });
+    for (const [name, source] of [['current', 'current'], ['historical', 'historical'], ['styleColor', 'style-color'], ['cr', 'vs-cr-refid'], ['india', 'vs-india'], ['malta', 'vs-malta'], ['romania', 'vs-romania']]) {
+      assert.equal((await repository.findByBarcode(ids[name])).imageSource, source);
+    }
+    assert.equal((await repository.findByBarcode(ids.romania)).image, 'https://example.test/romania-7.jpg');
+    assert.equal((await repository.findByBarcode(ids.missing)).image, null);
+    assert.equal((await repository.findByBarcode(ids.invalid)).image, null);
+    assert.equal(repository.metrics().vsRomaniaImagesLoaded, 1);
+
+    await rm(romania);
+    assert.equal((await repository.findByBarcode(ids.romania)).imageSource, 'vs-romania');
+    assert.equal((await repository.findByBarcode(ids.romania)).imageSource, 'vs-romania');
+
+    const noRomania = new VsExcelProductRepository(stock, { imageCatalogFilePath: empty, historicalImageFilePath: empty, vsRomaniaImageFilePath: path.join(dir, 'missing-romania.json') });
+    assert.equal(noRomania.metrics().vsRomaniaImagesLoaded, 0);
+    assert.equal((await noRomania.findByBarcode(ids.romania)).image, null);
+
+    const emptyRomania = new VsExcelProductRepository(stock, { imageCatalogFilePath: empty, historicalImageFilePath: empty, vsRomaniaImageFilePath: empty });
+    assert.equal(emptyRomania.metrics().vsRomaniaImagesLoaded, 0);
+
+    await writeFile(corrupt, '{not-json', 'utf8');
+    const corruptRomania = new VsExcelProductRepository(stock, { imageCatalogFilePath: empty, historicalImageFilePath: empty, vsRomaniaImageFilePath: corrupt });
+    assert.equal(corruptRomania.metrics().vsRomaniaImagesLoaded, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('VS loads 197575415862 exclusively from Malta and reaches expected coverage', { skip: !maltaReady }, async () => {
   const repository = new VsExcelProductRepository(masterStock, {
     imageCatalogFilePath: currentImages,
@@ -215,6 +287,25 @@ test('VS loads 197575415862 exclusively from Malta and reaches expected coverage
   assert.equal(repository.metrics().barcodesIndexed, 25159);
   assert.equal(repository.metrics().vsMaltaImagesLoaded, 4611);
   assert.equal(repository.metrics().imagesLoaded, 20325);
+});
+
+test('VS loads 667559984672 exclusively from Romania and reaches expected coverage', { skip: !romaniaReady }, async () => {
+  const repository = new VsExcelProductRepository(masterStock, {
+    imageCatalogFilePath: currentImages,
+    historicalImageFilePath: historicalImages,
+    styleColorImageFilePath: styleColorImages,
+    vsCrImageFilePath: crImages,
+    vsIndiaImageFilePath: indiaImages,
+    vsMaltaImageFilePath: maltaImages,
+    vsRomaniaImageFilePath: romaniaImages
+  });
+  const romaniaRow = await repository.findByBarcode('667559984672');
+  assert.ok(romaniaRow);
+  assert.equal(romaniaRow.imageSource, 'vs-romania');
+  assert.match(romaniaRow.image ?? '', /^https:\/\/media\.victoriassecret\.ro\/catalog\/product\//);
+  assert.equal(repository.metrics().barcodesIndexed, 25159);
+  assert.equal(repository.metrics().vsRomaniaImagesLoaded, 2643);
+  assert.equal(repository.metrics().imagesLoaded, 22968);
 });
 
 test('VS tolera la ausencia del cache CR', { skip: !existsSync(masterStock) }, async () => {
@@ -239,7 +330,7 @@ test('VS tolera la ausencia del cache India', { skip: !ready }, async () => {
   assert.equal((await repository.findByBarcode('197575012887')).imageSource, 'current');
 });
 
-test('VS server starts when the Malta cache is missing', { skip: !indiaReady }, async () => {
+test('VS server starts when the Malta and Romania caches are missing', { skip: !indiaReady }, async () => {
   const application = await startVsServer({
     port: 0,
     stockFilePath: masterStock,
@@ -248,10 +339,12 @@ test('VS server starts when the Malta cache is missing', { skip: !indiaReady }, 
     styleColorImageFilePath: styleColorImages,
     vsCrImageFilePath: crImages,
     vsIndiaImageFilePath: indiaImages,
-    vsMaltaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-malta.json')
+    vsMaltaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-malta.json'),
+    vsRomaniaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-romania.json')
   });
   try {
     assert.equal(application.repository.metrics().vsMaltaImagesLoaded, 0);
+    assert.equal(application.repository.metrics().vsRomaniaImagesLoaded, 0);
     assert.equal((await application.repository.findByBarcode('197575415862')).imageSource, null);
   } finally {
     await application.close();

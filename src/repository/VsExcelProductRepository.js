@@ -45,7 +45,7 @@ const firstDefined = (row, aliases) => {
 };
 
 export class VsExcelProductRepository extends ProductRepository {
-  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null } = {}) {
+  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null } = {}) {
     super();
     const started = performance.now();
     this.stockFilePath = stockFilePath;
@@ -56,6 +56,7 @@ export class VsExcelProductRepository extends ProductRepository {
     this.vsCrImagesByBarcode = new Map();
     this.vsIndiaImagesByBarcode = new Map();
     this.vsMaltaImagesByBarcode = new Map();
+    this.vsRomaniaImagesByBarcode = new Map();
     this.metadataByBarcode = new Map();
     this.readImageCatalog(imageCatalogFilePath);
     this.readHistoricalImageCatalog(historicalImageFilePath);
@@ -63,6 +64,7 @@ export class VsExcelProductRepository extends ProductRepository {
     this.readVsCrImageCatalog(vsCrImageFilePath);
     this.readVsIndiaImageCatalog(vsIndiaImageFilePath);
     this.readVsMaltaImageCatalog(vsMaltaImageFilePath);
+    this.readVsRomaniaImageCatalog(vsRomaniaImageFilePath);
     this.byBarcode = new Map();
     this.byReference = new Map();
     this.byStyle = new Map();
@@ -97,10 +99,11 @@ export class VsExcelProductRepository extends ProductRepository {
     this.vsCrImagesLoaded = this.vsCrImagesByBarcode.size;
     this.vsIndiaImagesLoaded = this.vsIndiaImagesByBarcode.size;
     this.vsMaltaImagesLoaded = this.vsMaltaImagesByBarcode.size;
-    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded + this.vsCrImagesLoaded + this.vsIndiaImagesLoaded + this.vsMaltaImagesLoaded;
+    this.vsRomaniaImagesLoaded = this.vsRomaniaImagesByBarcode.size;
+    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded + this.vsCrImagesLoaded + this.vsIndiaImagesLoaded + this.vsMaltaImagesLoaded + this.vsRomaniaImagesLoaded;
     this.reliableImagesLoaded = this.imagesLoaded;
     this.totalImagesLoaded = this.imagesLoaded;
-    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.vsCrImagesLoaded} vs-cr-refid; ${this.vsIndiaImagesLoaded} vs-india; ${this.vsMaltaImagesLoaded} vs-malta; ${this.imagesLoaded} imagenes`);
+    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.vsCrImagesLoaded} vs-cr-refid; ${this.vsIndiaImagesLoaded} vs-india; ${this.vsMaltaImagesLoaded} vs-malta; ${this.vsRomaniaImagesLoaded} vs-romania; ${this.imagesLoaded} imagenes`);
   }
 
   readStock(filePath) {
@@ -253,6 +256,37 @@ export class VsExcelProductRepository extends ProductRepository {
     }
   }
 
+  readVsRomaniaImageCatalog(filePath) {
+    if (!filePath || !existsSync(filePath)) return;
+    const conflictingBarcodes = new Set();
+    try {
+      for (const row of this.readJsonRows(filePath, 'recuperacion VS Romania')) {
+        const barcode = clean(row.barcode ?? row.CODBARRAS);
+        const url = clean(row.imageUrl ?? row.image_url ?? row.image);
+        const expectedSku = clean(row.styleColorNormalized);
+        const remoteSku = clean(row.remoteSku ?? row.skuRomania);
+        const imageValidation = row.imageValidation ?? {};
+        const valid = clean(row.classification).toUpperCase() === 'MATCHED_SAFE'
+          && expectedSku !== '' && remoteSku === expectedSku && isUrl(url)
+          && Number(imageValidation.httpStatus) >= 200 && Number(imageValidation.httpStatus) < 300
+          && /^image\//i.test(clean(imageValidation.contentType))
+          && imageValidation.placeholder === false && imageValidation.urlContainsExactSku === true;
+        if (!barcode || !valid || conflictingBarcodes.has(barcode)
+          || this.imagesByBarcode.has(barcode) || this.historicalImagesByBarcode.has(barcode)
+          || this.styleColorImagesByBarcode.has(barcode) || this.vsCrImagesByBarcode.has(barcode)
+          || this.vsIndiaImagesByBarcode.has(barcode) || this.vsMaltaImagesByBarcode.has(barcode)) continue;
+        const existing = this.vsRomaniaImagesByBarcode.get(barcode);
+        if (existing && (existing.url !== url || existing.remoteSku !== remoteSku)) {
+          this.vsRomaniaImagesByBarcode.delete(barcode);
+          conflictingBarcodes.add(barcode);
+        } else if (!existing) this.vsRomaniaImagesByBarcode.set(barcode, { url, remoteSku });
+      }
+    } catch (error) {
+      this.vsRomaniaImagesByBarcode.clear();
+      console.warn(`No se pudo cargar recuperacion VS Romania: ${error.message}`);
+    }
+  }
+
   imageFor(row) {
     if (this.imagesByBarcode.has(row.CODBARRAS)) return { image: this.imagesByBarcode.get(row.CODBARRAS), source: 'current' };
     if (this.historicalImagesByBarcode.has(row.CODBARRAS)) return { image: this.historicalImagesByBarcode.get(row.CODBARRAS), source: 'historical' };
@@ -260,6 +294,7 @@ export class VsExcelProductRepository extends ProductRepository {
     if (this.vsCrImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsCrImagesByBarcode.get(row.CODBARRAS), source: 'vs-cr-refid' };
     if (this.vsIndiaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsIndiaImagesByBarcode.get(row.CODBARRAS), source: 'vs-india' };
     if (this.vsMaltaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsMaltaImagesByBarcode.get(row.CODBARRAS), source: 'vs-malta' };
+    if (this.vsRomaniaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsRomaniaImagesByBarcode.get(row.CODBARRAS).url, source: 'vs-romania' };
     return { image: null, source: null };
   }
 
@@ -346,6 +381,7 @@ export class VsExcelProductRepository extends ProductRepository {
       styleColorImagesLoaded: this.styleColorImagesLoaded, vsCrImagesLoaded: this.vsCrImagesLoaded,
       vsIndiaImagesLoaded: this.vsIndiaImagesLoaded,
       vsMaltaImagesLoaded: this.vsMaltaImagesLoaded,
+      vsRomaniaImagesLoaded: this.vsRomaniaImagesLoaded,
       imagesLoaded: this.imagesLoaded, totalImagesLoaded: this.imagesLoaded,
       reliableImagesLoaded: this.reliableImagesLoaded, lastLookupMs: this.lastLookupMs ?? null };
   }
