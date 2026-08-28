@@ -5,17 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { vsProductApi } from './api/vsProductApi.js';
 import { VsExcelProductRepository } from './repository/VsExcelProductRepository.js';
+import { VsRuntimeImageRepository } from './repository/VsRuntimeImageRepository.js';
 import { VsProductService } from './service/VsProductService.js';
 import { loadEnvironment } from './config/environment.js';
+import { VsImageResolutionCache } from './vs-images/VsImageResolutionCache.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(root, '..');
 const jsonHeaders = { 'Content-Type': 'application/json; charset=utf-8' };
 const resolveLocalFile = (value, fallback) => [value, fallback].filter(Boolean)
   .map(file => path.isAbsolute(file) ? file : path.resolve(projectRoot, file)).find(existsSync);
+const resolveConfiguredPath = value => value ? (path.isAbsolute(value) ? value : path.resolve(projectRoot, value)) : null;
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot } = {}) => {
   const defaultVsDataFile = file => path.resolve(configuredProjectRoot, '..', '..', 'VSImageTest', file);
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, defaultVsDataFile('vs_inventory_master.json'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
@@ -26,7 +29,10 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const vsIndiaPath = vsIndiaImageFilePath || resolveLocalFile(env.VS_INDIA_IMAGE_FILE, defaultVsDataFile('vs_india_images.json'));
   const vsMaltaPath = vsMaltaImageFilePath || resolveLocalFile(env.VS_MALTA_IMAGE_FILE, defaultVsDataFile('vs_malta_images.json'));
   const vsRomaniaPath = vsRomaniaImageFilePath || resolveLocalFile(env.VS_ROMANIA_IMAGE_FILE, defaultVsDataFile('vs_romania_images.json'));
-  const repository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath });
+  const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath });
+  const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
+  const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
+  const repository = imageResolutionCache ? new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache) : bootstrapRepository;
   const service = new VsProductService(repository);
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {
@@ -40,7 +46,7 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
       return response.end(content);
     } catch { response.writeHead(404, jsonHeaders); return response.end(JSON.stringify({ error: 'Not found' })); }
   });
-  return { server, service, repository, close: async () => new Promise(resolve => server.close(resolve)) };
+  return { server, service, repository, bootstrapRepository, imageResolutionCache, close: async () => new Promise(resolve => server.close(resolve)) };
 };
 
 export const startVsServer = async options => {
