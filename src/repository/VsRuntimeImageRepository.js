@@ -19,9 +19,10 @@ const sourcePrecedence = source => {
 };
 
 export class VsRuntimeImageRepository {
-  constructor(repository, imageResolutionCache = null) {
+  constructor(repository, imageResolutionCache = null, imageRegistry = null) {
     this.repository = repository;
     this.imageResolutionCache = imageResolutionCache;
+    this.imageRegistry = imageRegistry;
     this.rowsByStyle = new Map();
     this.exactRowsByColor = new Map();
     for (const row of Array.isArray(repository?.rows) ? repository.rows : []) {
@@ -34,6 +35,7 @@ export class VsRuntimeImageRepository {
         this.exactRowsByColor.set(color, [...(this.exactRowsByColor.get(color) ?? []), { row, resolved }]);
       }
     }
+    this.imageRegistry?.reconcile(repository?.rows, row => this.exactImageFor(row));
   }
 
   runtimeImageFor(style, color) {
@@ -50,7 +52,8 @@ export class VsRuntimeImageRepository {
       return { image: row.image, imageSource: row.imageSource };
     }
     const resolved = typeof this.repository?.toPublicRow === 'function' ? this.repository.toPublicRow(row) : row;
-    if (!resolved?.image || !isUrl(resolved.image) || !clean(resolved.imageSource)) return null;
+    if (!resolved?.image || !isUrl(resolved.image) || !clean(resolved.imageSource)
+      || resolved.imageIsReference === true || /^same-(style|color)-reference$/i.test(clean(resolved.imageSource))) return null;
     return { image: resolved.image, imageSource: resolved.imageSource };
   }
 
@@ -165,4 +168,6 @@ export class VsRuntimeImageRepository {
 
   catalogFacets() { return this.repository.catalogFacets(); }
   metrics() { return this.repository.metrics(); }
+  imageCoverage() { return this.imageRegistry?.coverage() ?? null; }
+  imageCoveragePending() { return this.imageRegistry?.pending() ?? []; }
 }

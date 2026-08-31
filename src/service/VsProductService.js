@@ -156,4 +156,7 @@ export class VsProductService {
   searchCatalog(options = {}) {
     return this.repository.searchCatalog(options);
   }
+
+  imageCoverage() { return this.repository.imageCoverage?.() ?? null; }
+  imageCoveragePending() { return this.repository.imageCoveragePending?.() ?? []; }
 }
