@@ -168,6 +168,6 @@ export class VsRuntimeImageRepository {
 
   catalogFacets() { return this.repository.catalogFacets(); }
   metrics() { return this.repository.metrics(); }
-  imageCoverage() { return this.imageRegistry?.summary() ?? null; }
+  imageCoverage() { return this.imageRegistry?.coverage() ?? null; }
   imageCoveragePending() { return this.imageRegistry?.pending() ?? []; }
 }

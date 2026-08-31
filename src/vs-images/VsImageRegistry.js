@@ -47,6 +47,7 @@ export class VsImageRegistry {
     this.entries = new Map();
     this.inStock = new Map();
     this.classifications = new Map();
+    this.inventory = { barcodesInStock: 0, barcodesWithExactImage: 0, unregistrableBarcodes: 0, unregistrableWithExactImage: 0 };
     this.updatedAt = null;
   }
 
@@ -82,14 +83,28 @@ export class VsImageRegistry {
   reconcile(rows, exactImageFor) {
     this.inStock.clear();
     this.classifications.clear();
+    const activeRows = [];
     for (const row of rows ?? []) {
       if (Number(row?.STOCK ?? row?.stock ?? 0) <= 0) continue;
+      activeRows.push(row);
       const style = clean(row?.STYLE ?? row?.style);
       const color = clean(row?.COLOR ?? row?.color).toUpperCase();
       const key = styleColorFromParts(style, color);
       if (!key) continue;
       this.inStock.set(key, [...(this.inStock.get(key) ?? []), row]);
     }
+
+    this.inventory = activeRows.reduce((total, row) => {
+      const valid = Boolean(styleColorFromParts(row?.STYLE ?? row?.style, row?.COLOR ?? row?.color));
+      const exact = Boolean(exactImageFor?.(row));
+      total.barcodesInStock += 1;
+      if (exact) total.barcodesWithExactImage += 1;
+      if (!valid) {
+        total.unregistrableBarcodes += 1;
+        if (exact) total.unregistrableWithExactImage += 1;
+      }
+      return total;
+    }, { barcodesInStock: 0, barcodesWithExactImage: 0, unregistrableBarcodes: 0, unregistrableWithExactImage: 0 });
 
     const timestamp = this.now();
     for (const [key, stockRows] of this.inStock) {
@@ -138,6 +153,32 @@ export class VsImageRegistry {
       requestError: counts.REQUEST_ERROR,
       identityConflict: counts.IDENTITY_CONFLICT,
       exactCoveragePercent: styleColorsInStock ? (counts.MATCHED_SAFE / styleColorsInStock) * 100 : 0
+    };
+  }
+
+  coverage() {
+    const registry = this.summary();
+    const inventory = {
+      barcodesInStock: this.inventory.barcodesInStock,
+      barcodesWithExactImage: this.inventory.barcodesWithExactImage,
+      barcodeExactCoveragePercent: this.inventory.barcodesInStock ? (this.inventory.barcodesWithExactImage / this.inventory.barcodesInStock) * 100 : 0
+    };
+    return {
+      inventory,
+      registry: {
+        validStyleColorsInStock: registry.styleColorsInStock,
+        matchedSafe: registry.matchedSafe,
+        pending: registry.pending,
+        noMatch: registry.noMatch,
+        requestError: registry.requestError,
+        identityConflict: registry.identityConflict,
+        styleColorExactCoveragePercent: registry.exactCoveragePercent
+      },
+      unregistrable: {
+        barcodes: this.inventory.unregistrableBarcodes,
+        withExactImage: this.inventory.unregistrableWithExactImage,
+        withoutExactImage: this.inventory.unregistrableBarcodes - this.inventory.unregistrableWithExactImage
+      }
     };
   }
 

@@ -36,7 +36,7 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const bundledSupplementalPath = path.resolve(projectRoot, 'data', 'vs-research', 'vs_supplemental_safe.json');
   const vsSupplementalPath = vsSupplementalImageFilePath || resolveLocalFile(env.VS_SUPPLEMENTAL_IMAGE_FILE, defaultVsDataFile('vs_supplemental_safe.json')) || (existsSync(bundledSupplementalPath) ? bundledSupplementalPath : null);
   const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath, vsSupplementalImageFilePath: vsSupplementalPath });
-  const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
+  const runtimeCachePath = runtimeImageCacheFilePath || resolveLocalFile(env.VS_RUNTIME_IMAGE_CACHE_FILE, defaultVsDataFile('vs_image_resolution_cache.json'));
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
   const registryPath = imageRegistryFilePath || resolveConfiguredPath(env.VS_IMAGE_REGISTRY_FILE) || path.resolve(projectRoot, 'data', 'runtime', 'vs-image-registry.json');
   const imageRegistry = new VsImageRegistry(registryPath).load();

@@ -340,7 +340,8 @@ test('VS server starts when the Malta and Romania caches are missing', { skip: !
     vsCrImageFilePath: crImages,
     vsIndiaImageFilePath: indiaImages,
     vsMaltaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-malta.json'),
-    vsRomaniaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-romania.json')
+    vsRomaniaImageFilePath: path.join(vsImageTestRoot, 'missing-vs-romania.json'),
+    runtimeImageCacheFilePath: path.join(vsImageTestRoot, 'missing-vs-runtime.json')
   });
   try {
     assert.equal(application.repository.metrics().vsMaltaImagesLoaded, 0);

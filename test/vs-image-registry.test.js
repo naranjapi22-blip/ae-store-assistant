@@ -93,13 +93,18 @@ test('registry acepta bootstrap y runtime MATCHED_SAFE, pero nunca referencias v
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-test('API expone summary y pendientes ordenados por stock actual sin persistirlo', async () => {
+test('API separa cobertura por barcode y registry, y ordena pendientes por stock actual', async () => {
   const registry = new VsImageRegistry(null, { now: () => '2026-01-01T00:00:00.000Z' });
   registry.reconcile([row('3001', '11250001', '1ABC', 2), row('3002', '11250002', '2ABC', 9), row('3003', '11250003', '3ABC', 9)], () => null);
-  const service = { imageCoverage: () => registry.summary(), imageCoveragePending: () => registry.pending() };
+  const service = { imageCoverage: () => registry.coverage(), imageCoveragePending: () => registry.pending() };
   const api = vsProductApi(service);
   let res = response(); await api({ url: '/api/vs/image-coverage' }, res);
-  assert.equal(res.result.status, 200); assert.equal(JSON.parse(res.result.body).styleColorsInStock, 3);
+  assert.equal(res.result.status, 200);
+  const coverage = JSON.parse(res.result.body);
+  assert.equal(coverage.inventory.barcodesInStock, 3);
+  assert.equal(coverage.inventory.barcodesWithExactImage, 0);
+  assert.equal(coverage.registry.validStyleColorsInStock, 3);
+  assert.deepEqual(coverage.unregistrable, { barcodes: 0, withExactImage: 0, withoutExactImage: 0 });
   res = response(); await api({ url: '/api/vs/image-coverage/pending' }, res);
   const items = JSON.parse(res.result.body).items;
   assert.deepEqual(items.map(item => item.STYLE), ['11250002', '11250003', '11250001']);
