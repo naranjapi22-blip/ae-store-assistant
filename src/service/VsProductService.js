@@ -19,6 +19,20 @@ const compareSizes = (left, right) => {
   return 0;
 };
 
+const imageRank = item => item?.image ? (item.imageIsReference === true ? 1 : 2) : 0;
+const imageFields = item => {
+  const reference = item?.imageIsReference === true;
+  return {
+    image: item?.image ?? null,
+    imageSource: item?.imageSource ?? null,
+    exactImage: Boolean(item?.image) && !reference,
+    imageIsReference: reference,
+    requestedColor: reference ? (clean(item?.requestedColor ?? item?.COLOR ?? item?.color) || null) : null,
+    referenceImageColor: reference ? (clean(item?.referenceImageColor) || null) : null,
+    referenceImageSource: reference ? (clean(item?.referenceImageSource) || null) : null
+  };
+};
+
 export class VsProductService {
   constructor(repository) { this.repository = repository; }
 
@@ -37,15 +51,14 @@ export class VsProductService {
     }
     return [...bySize.entries()].map(([size, items]) => {
       const representative = [...items].sort((left, right) => {
-        const imageOrder = Number(Boolean(right.image)) - Number(Boolean(left.image));
+        const imageOrder = imageRank(right) - imageRank(left);
         return imageOrder || clean(left.CODBARRAS).localeCompare(clean(right.CODBARRAS));
       })[0];
       return {
         size,
         stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
         barcode: representative.CODBARRAS,
-        image: representative.image ?? null,
-        imageSource: representative.imageSource ?? null,
+        ...imageFields(representative),
         scanned: Boolean(scannedBarcode) && items.some(item => item.CODBARRAS === scannedBarcode),
         selected: Boolean(selectedBarcode) && items.some(item => item.CODBARRAS === selectedBarcode),
         description: representative.DESCRIPCION,
@@ -75,12 +88,13 @@ export class VsProductService {
     return [...byColor.values()]
       .filter(items => items[0].COLOR.toLocaleLowerCase() !== clean(row.COLOR).toLocaleLowerCase())
       .map(items => {
-        const representative = items.find(item => item.image) ?? items[0];
+        const representative = items.find(item => item.image && item.imageIsReference !== true) ?? items[0];
+        const hasExactImage = Boolean(representative.image) && representative.imageIsReference !== true;
         return {
           color: representative.COLOR,
           barcode: representative.CODBARRAS,
-          image: representative.image ?? null,
-          imageSource: representative.imageSource ?? null,
+          image: hasExactImage ? representative.image : null,
+          imageSource: hasExactImage ? (representative.imageSource ?? null) : null,
           stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
           sizes: this.buildSizes(items)
         };
@@ -98,7 +112,7 @@ export class VsProductService {
     const selectedSize = sizes.find(item => item.selected);
     const totalStock = sizes.reduce((total, item) => total + Number(item.stock ?? 0), 0);
     return {
-      brand: 'VS', image: row.image ?? null, imageSource: row.imageSource ?? null, description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
+      brand: 'VS', ...imageFields(row), description: row.DESCRIPCION, style: row.STYLE, stylo: row.STYLO,
       supplierReference: row.REFPROVEEDOR, color: row.COLOR, scannedSize: scannedVariant?.TALLA ?? null,
       selectedSize: row.TALLA, scannedBarcode: scannedVariant?.CODBARRAS ?? null, selectedBarcode: row.CODBARRAS,
       stock: selectedSize?.stock ?? Number(row.STOCK ?? 0), totalStock, barcode: row.CODBARRAS, season: row.TEMPORADA, department: row.departamento,
@@ -121,7 +135,7 @@ export class VsProductService {
       return { product: null, ambiguous: true, options: optionsByStyle };
     }
     const representative = [...rows].sort((left, right) => {
-      const imageOrder = Number(Boolean(right.image)) - Number(Boolean(left.image));
+      const imageOrder = imageRank(right) - imageRank(left);
       return imageOrder || clean(left.CODBARRAS).localeCompare(clean(right.CODBARRAS));
     })[0];
     return { product: await this.getProductByBarcode(representative.CODBARRAS, options) };

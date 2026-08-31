@@ -24,8 +24,12 @@ let catalogState = { offset: 0, limit: 50, hasMore: false };
 const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = type; };
 
+const renderReferenceNotice = data => data.imageIsReference
+  ? `<div style="width:100%;margin-bottom:10px;padding:12px 14px;border:1px solid #d8cbd0;border-radius:10px;background:#fff;text-align:left"><strong style="display:block;color:#7e3650;font-size:13px">Imagen de referencia</strong><span style="display:block;margin-top:3px;font-size:13px">Mismo modelo en otro color/estampado.</span><small style="display:block;margin-top:4px;color:#756b70">Color consultado: ${escapeHtml(data.requestedColor || data.color || 'No disponible')} · Imagen: ${escapeHtml(data.referenceImageColor || 'otro color')}</small></div>`
+  : '';
+
 const renderImage = data => data.image
-  ? `<img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}"><div class="placeholder" hidden>Imagen no disponible</div>`
+  ? `${renderReferenceNotice(data)}<img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}"><div class="placeholder" hidden>Imagen no disponible</div>`
   : '<div class="placeholder">Imagen no disponible</div>';
 
 const renderSizes = data => (data.sizes || []).map(item => `<li><button class="size ${item.scanned ? 'scanned' : ''} ${item.selected ? 'selected' : ''}" type="button" data-size-barcode="${escapeHtml(item.barcode)}" aria-pressed="${item.selected ? 'true' : 'false'}"><strong>${escapeHtml(item.size || 'Sin talla')}</strong><span>${escapeHtml(item.stock)} unidades</span>${item.scanned ? '<em>Talla escaneada</em>' : ''}${item.selected ? '<em class="selected-label">Seleccionada</em>' : ''}</button></li>`).join('') || '<li class="no-items">No hay tallas disponibles</li>';
@@ -38,7 +42,7 @@ const selectSize = sizeBarcode => {
   if (!currentProduct) return;
   const selected = currentProduct.sizes.find(item => item.barcode === sizeBarcode);
   if (!selected) return;
-  currentProduct = { ...currentProduct, barcode: selected.barcode, selectedBarcode: selected.barcode, selectedSize: selected.size, stock: selected.stock, totalStock: currentProduct.totalStock, image: selected.image, description: selected.description || currentProduct.description, supplierReference: selected.supplierReference || currentProduct.supplierReference, sizes: currentProduct.sizes.map(item => ({ ...item, selected: item.barcode === selected.barcode })) };
+  currentProduct = { ...currentProduct, barcode: selected.barcode, selectedBarcode: selected.barcode, selectedSize: selected.size, stock: selected.stock, totalStock: currentProduct.totalStock, image: selected.image, imageSource: selected.imageSource, exactImage: selected.exactImage, imageIsReference: selected.imageIsReference, requestedColor: selected.requestedColor, referenceImageColor: selected.referenceImageColor, referenceImageSource: selected.referenceImageSource, description: selected.description || currentProduct.description, supplierReference: selected.supplierReference || currentProduct.supplierReference, sizes: currentProduct.sizes.map(item => ({ ...item, selected: item.barcode === selected.barcode })) };
   input.value = selected.barcode; renderProduct(currentProduct); setMessage('Talla seleccionada', 'success');
 };
 
@@ -85,7 +89,7 @@ const renderFacets = facets => {
   fill(catalogDepartment, facets.departments); fill(catalogSection, facets.sections); fill(catalogFamily, facets.families); fill(catalogSubfamily, facets.subfamilies);
 };
 
-const renderCatalogItems = items => items.map(item => `<article class="catalog-card"><button class="catalog-card-button" type="button" data-catalog-barcode="${escapeHtml(item.barcode)}"><div class="catalog-card-image">${item.image ? `<img src="${escapeHtml(item.image)}" alt="Imagen de ${escapeHtml(item.description)}"><span class="placeholder" hidden>Imagen no disponible</span>` : '<span class="placeholder">Imagen no disponible</span>'}</div><div class="catalog-card-details"><p class="eyebrow">${escapeHtml(item.style || 'STYLE no disponible')}</p><h3>${escapeHtml(item.description || 'Producto VS')}</h3><p><strong>${escapeHtml(item.color || 'Color no disponible')}</strong></p><span>${escapeHtml(item.stock)} unidades · ${escapeHtml(item.availableSizes)} tallas</span></div></button></article>`).join('');
+const renderCatalogItems = items => items.map(item => `<article class="catalog-card"><button class="catalog-card-button" type="button" data-catalog-barcode="${escapeHtml(item.barcode)}">${item.imageIsReference ? '<div style="padding:9px 12px;border-bottom:1px solid #eadfe3;background:#fff;text-align:left"><strong style="display:block;color:#7e3650;font-size:12px">Imagen de referencia</strong><span style="display:block;margin-top:2px;color:#241f22;font-size:11px">Mismo modelo en otro color/estampado.</span></div>' : ''}<div class="catalog-card-image">${item.image ? `<img src="${escapeHtml(item.image)}" alt="Imagen de ${escapeHtml(item.description)}"><span class="placeholder" hidden>Imagen no disponible</span>` : '<span class="placeholder">Imagen no disponible</span>'}</div><div class="catalog-card-details"><p class="eyebrow">${escapeHtml(item.style || 'STYLE no disponible')}</p><h3>${escapeHtml(item.description || 'Producto VS')}</h3><p><strong>${escapeHtml(item.color || 'Color no disponible')}</strong></p><span>${escapeHtml(item.stock)} unidades · ${escapeHtml(item.availableSizes)} tallas</span></div></button></article>`).join('');
 
 const loadCatalog = async (reset = true) => {
   const offset = reset ? 0 : catalogState.offset + catalogState.limit;
