@@ -25,11 +25,11 @@ const focusScanner = () => { input.focus(); input.select(); };
 const setMessage = (text, type = '') => { message.textContent = text; message.className = type; };
 
 const renderReferenceNotice = data => data.imageIsReference
-  ? `<div style="width:100%;margin-top:10px;padding:12px 14px;border:1px solid #d8cbd0;border-radius:10px;background:#fff;text-align:left"><strong style="display:block;color:#7e3650;font-size:13px">Imagen de referencia</strong><span style="display:block;margin-top:3px;font-size:13px">Mismo modelo en otro color/estampado.</span><small style="display:block;margin-top:4px;color:#756b70">Color consultado: ${escapeHtml(data.requestedColor || data.color || 'No disponible')} · Imagen: ${escapeHtml(data.referenceImageColor || 'otro color')}</small></div>`
+  ? `<div style="width:100%;margin-bottom:10px;padding:12px 14px;border:1px solid #d8cbd0;border-radius:10px;background:#fff;text-align:left"><strong style="display:block;color:#7e3650;font-size:13px">Imagen de referencia</strong><span style="display:block;margin-top:3px;font-size:13px">Mismo modelo en otro color/estampado.</span><small style="display:block;margin-top:4px;color:#756b70">Color consultado: ${escapeHtml(data.requestedColor || data.color || 'No disponible')} · Imagen: ${escapeHtml(data.referenceImageColor || 'otro color')}</small></div>`
   : '';
 
 const renderImage = data => data.image
-  ? `<img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}"><div class="placeholder" hidden>Imagen no disponible</div>${renderReferenceNotice(data)}`
+  ? `${renderReferenceNotice(data)}<img src="${escapeHtml(data.image)}" alt="Imagen de ${escapeHtml(data.description)}"><div class="placeholder" hidden>Imagen no disponible</div>`
   : '<div class="placeholder">Imagen no disponible</div>';
 
 const renderSizes = data => (data.sizes || []).map(item => `<li><button class="size ${item.scanned ? 'scanned' : ''} ${item.selected ? 'selected' : ''}" type="button" data-size-barcode="${escapeHtml(item.barcode)}" aria-pressed="${item.selected ? 'true' : 'false'}"><strong>${escapeHtml(item.size || 'Sin talla')}</strong><span>${escapeHtml(item.stock)} unidades</span>${item.scanned ? '<em>Talla escaneada</em>' : ''}${item.selected ? '<em class="selected-label">Seleccionada</em>' : ''}</button></li>`).join('') || '<li class="no-items">No hay tallas disponibles</li>';
