@@ -47,6 +47,24 @@ export class VsRuntimeImageRepository {
     return { image: entry.imageUrl, imageSource: entry.source };
   }
 
+  registerRuntimeMatch(styleColor, entry = null) {
+    const [style, color] = clean(styleColor).split('-');
+    if (!styleColorFromParts(style, color)) return false;
+    const resolved = entry?.status === 'MATCHED_SAFE' && isUrl(entry.imageUrl) && clean(entry.source)
+      ? { image: entry.imageUrl, imageSource: entry.source }
+      : this.runtimeImageFor(style, color);
+    if (!resolved) return false;
+    for (const row of this.repository?.rows ?? []) {
+      if (keyPart(row.STYLE) !== keyPart(style) || keyPart(row.COLOR) !== keyPart(color)
+        || excludedSameColorDepartments.has(keyPart(row.departamento))) continue;
+      const candidates = this.exactRowsByColor.get(keyPart(color)) ?? [];
+      if (!candidates.some(candidate => clean(candidate.row.CODBARRAS) === clean(row.CODBARRAS))) {
+        this.exactRowsByColor.set(keyPart(color), [...candidates, { row, resolved }]);
+      }
+    }
+    return true;
+  }
+
   bootstrapImageFor(row) {
     if (row?.image && isUrl(row.image) && clean(row.imageSource) && row.imageIsReference !== true) {
       return { image: row.image, imageSource: row.imageSource };
@@ -168,6 +186,6 @@ export class VsRuntimeImageRepository {
 
   catalogFacets() { return this.repository.catalogFacets(); }
   metrics() { return this.repository.metrics(); }
-  imageCoverage() { return this.imageRegistry?.coverage() ?? null; }
-  imageCoveragePending() { return this.imageRegistry?.pending() ?? []; }
+  imageCoverage(options) { return this.imageRegistry?.coverage(options) ?? null; }
+  imageCoveragePending(options) { return this.imageRegistry?.pending(options) ?? []; }
 }

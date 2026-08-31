@@ -59,5 +59,5 @@ test('VsImageResolver keeps NO_MATCH and REQUEST_ERROR conservative', async () =
   assert.equal(summary.noMatch, 1);
   assert.equal(summary.requestError, 1);
   assert.deepEqual(cache.get('11249650-AAAA').checkedProviders, ['vs-romania']);
-  assert.deepEqual(cache.get('11249651-BBBB').checkedProviders, ['vs-romania']);
+  assert.deepEqual(cache.get('11249651-BBBB').checkedProviders, []);
 });

@@ -74,13 +74,13 @@ export class VsImageResolver {
     for (const provider of this.providers) {
       if (checked.has(provider.name)) continue;
       const result = await provider.resolve(candidate);
-      checked.add(provider.name);
+      if (result.status !== 'REQUEST_ERROR') checked.add(provider.name);
       const entry = { ...result, checkedProviders: [...checked] };
       this.cache.set(candidate.styleColor, entry);
-      if (result.status === 'MATCHED_SAFE' || result.status === 'IDENTITY_CONFLICT') return result;
+      if (result.status === 'MATCHED_SAFE' || result.status === 'IDENTITY_CONFLICT') return entry;
     }
     const final = this.cache.get(candidate.styleColor);
-    if (final) return final;
+    if (final) return { ...final, checkedProviders: [...checked] };
     const fallback = { status: 'NO_MATCH', checkedProviders: [...checked] };
     this.cache.set(candidate.styleColor, fallback);
     return fallback;

@@ -6,6 +6,7 @@ const VERSION = 1;
 const STATUSES = new Set(['MATCHED_SAFE', 'PENDING', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT']);
 const clean = value => value == null ? '' : String(value).trim();
 const isUrl = value => /^https?:\/\//i.test(clean(value));
+const providerNames = value => [...new Set((Array.isArray(value) ? value : []).filter(item => typeof item === 'string').map(clean).filter(Boolean))];
 const sourceRank = source => {
   const value = clean(source).toLowerCase();
   if (value === 'current') return 0;
@@ -31,6 +32,8 @@ const sanitizeEntry = (key, value = {}) => {
     firstSeenAt: clean(value.firstSeenAt) || null,
     lastSeenAt: clean(value.lastSeenAt) || null,
     lastCheckedAt: clean(value.lastCheckedAt) || null,
+    attemptCount: Math.max(0, Math.floor(Number(value.attemptCount) || 0)),
+    checkedProviders: providerNames(value.checkedProviders),
     barcodes: [...new Set((Array.isArray(value.barcodes) ? value.barcodes : []).map(clean).filter(Boolean))].sort()
   };
   if (status === 'MATCHED_SAFE' && isUrl(value.imageUrl) && clean(value.source)) {
@@ -115,7 +118,7 @@ export class VsImageRegistry {
         .sort((left, right) => sourceRank(left.resolved.imageSource) - sourceRank(right.resolved.imageSource)
           || clean(left.row.CODBARRAS ?? left.row.barcode).localeCompare(clean(right.row.CODBARRAS ?? right.row.barcode)));
       const selected = candidates[0];
-      const base = existing ?? { style, color, status: 'PENDING', firstSeenAt: timestamp, lastCheckedAt: null };
+      const base = existing ?? { style, color, status: 'PENDING', firstSeenAt: timestamp, lastCheckedAt: null, attemptCount: 0, checkedProviders: [] };
       const entry = {
         ...base,
         style,
@@ -138,13 +141,16 @@ export class VsImageRegistry {
     return this;
   }
 
-  summary() {
+  summary({ availableProviders = [] } = {}) {
     const counts = { MATCHED_SAFE: 0, PENDING: 0, NO_MATCH: 0, REQUEST_ERROR: 0, IDENTITY_CONFLICT: 0 };
     for (const key of this.inStock.keys()) {
       const status = this.entries.get(key)?.status ?? 'PENDING';
       counts[status] += 1;
     }
     const styleColorsInStock = this.inStock.size;
+    const pending = [...this.inStock.keys()].filter(key => this.entries.get(key)?.status === 'PENDING');
+    const available = providerNames(availableProviders);
+    const actionable = pending.filter(key => available.some(provider => !this.entries.get(key)?.checkedProviders?.includes(provider)));
     return {
       styleColorsInStock,
       matchedSafe: counts.MATCHED_SAFE,
@@ -152,12 +158,14 @@ export class VsImageRegistry {
       noMatch: counts.NO_MATCH,
       requestError: counts.REQUEST_ERROR,
       identityConflict: counts.IDENTITY_CONFLICT,
+      pendingActionable: actionable.length,
+      pendingExhaustedCurrentProviders: pending.length - actionable.length,
       exactCoveragePercent: styleColorsInStock ? (counts.MATCHED_SAFE / styleColorsInStock) * 100 : 0
     };
   }
 
-  coverage() {
-    const registry = this.summary();
+  coverage(options = {}) {
+    const registry = this.summary(options);
     const inventory = {
       barcodesInStock: this.inventory.barcodesInStock,
       barcodesWithExactImage: this.inventory.barcodesWithExactImage,
@@ -169,6 +177,8 @@ export class VsImageRegistry {
         validStyleColorsInStock: registry.styleColorsInStock,
         matchedSafe: registry.matchedSafe,
         pending: registry.pending,
+        pendingActionable: registry.pendingActionable,
+        pendingExhaustedCurrentProviders: registry.pendingExhaustedCurrentProviders,
         noMatch: registry.noMatch,
         requestError: registry.requestError,
         identityConflict: registry.identityConflict,
@@ -182,7 +192,8 @@ export class VsImageRegistry {
     };
   }
 
-  pending() {
+  pending({ availableProviders = [] } = {}) {
+    const available = providerNames(availableProviders);
     return [...this.inStock.entries()]
       .map(([key, rows]) => ({ key, entry: this.entries.get(key), rows }))
       .filter(item => item.entry?.status === 'PENDING')
@@ -197,9 +208,50 @@ export class VsImageRegistry {
         status: entry.status,
         classification: this.classifications.get(`${entry.style}-${entry.color}`) ?? 'KNOWN_PENDING',
         firstSeenAt: entry.firstSeenAt,
-        lastCheckedAt: entry.lastCheckedAt
+        lastCheckedAt: entry.lastCheckedAt,
+        attemptCount: entry.attemptCount ?? 0,
+        checkedProviders: providerNames(entry.checkedProviders),
+        actionable: available.some(provider => !entry.checkedProviders?.includes(provider))
       }))
       .sort((left, right) => right.stockActualTotal - left.stockActualTotal
+        || clean(left.firstSeenAt).localeCompare(clean(right.firstSeenAt))
         || left.STYLE.localeCompare(right.STYLE) || left.COLOR.localeCompare(right.COLOR));
+  }
+
+  pendingEntries(options = {}) {
+    return this.pending(options).filter(item => item.actionable).map(item => ({
+      ...item,
+      key: styleColorFromParts(item.STYLE, item.COLOR),
+      rows: this.inStock.get(styleColorFromParts(item.STYLE, item.COLOR)) ?? []
+    }));
+  }
+
+  recordResolution(styleColor, result = {}, { requiredProviderNames = [] } = {}) {
+    const key = styleColorFromParts(...clean(styleColor).split('-'));
+    const existing = key ? this.entries.get(key) : null;
+    if (!key || !existing || existing.status === 'MATCHED_SAFE') return null;
+    const status = clean(result.status).toUpperCase();
+    if (!['MATCHED_SAFE', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT'].includes(status)) return null;
+    const completedProviders = status === 'REQUEST_ERROR' ? existing.checkedProviders : providerNames(result.checkedProviders);
+    const checkedProviders = providerNames([...(existing.checkedProviders ?? []), ...completedProviders]);
+    const required = providerNames(requiredProviderNames);
+    const globalNoMatch = status === 'NO_MATCH' && required.length > 0 && required.every(provider => checkedProviders.includes(provider));
+    const updated = {
+      ...existing,
+      status: globalNoMatch ? 'NO_MATCH' : (status === 'NO_MATCH' ? 'PENDING' : status),
+      attemptCount: (existing.attemptCount ?? 0) + 1,
+      lastCheckedAt: this.now(),
+      checkedProviders
+    };
+    delete updated.imageUrl;
+    delete updated.source;
+    if (status === 'MATCHED_SAFE') {
+      if (!isUrl(result.imageUrl) || !clean(result.source)) return null;
+      updated.imageUrl = clean(result.imageUrl);
+      updated.source = clean(result.source);
+    }
+    this.entries.set(key, updated);
+    this.save();
+    return updated;
   }
 }
