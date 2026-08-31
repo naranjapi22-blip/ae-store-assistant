@@ -31,6 +31,7 @@ const sanitizeEntry = (key, value = {}) => {
     firstSeenAt: clean(value.firstSeenAt) || null,
     lastSeenAt: clean(value.lastSeenAt) || null,
     lastCheckedAt: clean(value.lastCheckedAt) || null,
+    attemptCount: Math.max(0, Math.floor(Number(value.attemptCount) || 0)),
     barcodes: [...new Set((Array.isArray(value.barcodes) ? value.barcodes : []).map(clean).filter(Boolean))].sort()
   };
   if (status === 'MATCHED_SAFE' && isUrl(value.imageUrl) && clean(value.source)) {
@@ -115,7 +116,7 @@ export class VsImageRegistry {
         .sort((left, right) => sourceRank(left.resolved.imageSource) - sourceRank(right.resolved.imageSource)
           || clean(left.row.CODBARRAS ?? left.row.barcode).localeCompare(clean(right.row.CODBARRAS ?? right.row.barcode)));
       const selected = candidates[0];
-      const base = existing ?? { style, color, status: 'PENDING', firstSeenAt: timestamp, lastCheckedAt: null };
+      const base = existing ?? { style, color, status: 'PENDING', firstSeenAt: timestamp, lastCheckedAt: null, attemptCount: 0 };
       const entry = {
         ...base,
         style,
@@ -197,9 +198,43 @@ export class VsImageRegistry {
         status: entry.status,
         classification: this.classifications.get(`${entry.style}-${entry.color}`) ?? 'KNOWN_PENDING',
         firstSeenAt: entry.firstSeenAt,
-        lastCheckedAt: entry.lastCheckedAt
+        lastCheckedAt: entry.lastCheckedAt,
+        attemptCount: entry.attemptCount ?? 0
       }))
       .sort((left, right) => right.stockActualTotal - left.stockActualTotal
+        || clean(left.firstSeenAt).localeCompare(clean(right.firstSeenAt))
         || left.STYLE.localeCompare(right.STYLE) || left.COLOR.localeCompare(right.COLOR));
+  }
+
+  pendingEntries() {
+    return this.pending().map(item => ({
+      ...item,
+      key: styleColorFromParts(item.STYLE, item.COLOR),
+      rows: this.inStock.get(styleColorFromParts(item.STYLE, item.COLOR)) ?? []
+    }));
+  }
+
+  recordResolution(styleColor, result = {}) {
+    const key = styleColorFromParts(...clean(styleColor).split('-'));
+    const existing = key ? this.entries.get(key) : null;
+    if (!key || !existing || existing.status === 'MATCHED_SAFE') return null;
+    const status = clean(result.status).toUpperCase();
+    if (!['MATCHED_SAFE', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT'].includes(status)) return null;
+    const updated = {
+      ...existing,
+      status,
+      attemptCount: (existing.attemptCount ?? 0) + 1,
+      lastCheckedAt: this.now()
+    };
+    delete updated.imageUrl;
+    delete updated.source;
+    if (status === 'MATCHED_SAFE') {
+      if (!isUrl(result.imageUrl) || !clean(result.source)) return null;
+      updated.imageUrl = clean(result.imageUrl);
+      updated.source = clean(result.source);
+    }
+    this.entries.set(key, updated);
+    this.save();
+    return updated;
   }
 }

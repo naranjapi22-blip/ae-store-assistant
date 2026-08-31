@@ -46,7 +46,7 @@ const imageFields = item => {
 };
 
 export class VsProductService {
-  constructor(repository) { this.repository = repository; }
+  constructor(repository, { pendingImageResolver = null } = {}) { this.repository = repository; this.pendingImageResolver = pendingImageResolver; }
 
   async findVariants(row) {
     if (!validValue(row.STYLE) || !validValue(row.COLOR) || !row.styleColorKey) return [row];
@@ -159,4 +159,5 @@ export class VsProductService {
 
   imageCoverage() { return this.repository.imageCoverage?.() ?? null; }
   imageCoveragePending() { return this.repository.imageCoveragePending?.() ?? []; }
+  resolvePendingImages(options) { return this.pendingImageResolver?.runBatch(options) ?? null; }
 }

@@ -11,6 +11,7 @@ import { loadEnvironment } from './config/environment.js';
 import { VsImageResolutionCache } from './vs-images/VsImageResolutionCache.js';
 import { VsImageRegistry } from './vs-images/VsImageRegistry.js';
 import { VsImageResolver } from './vs-images/VsImageResolver.js';
+import { VsPendingImageResolver } from './vs-images/VsPendingImageResolver.js';
 import { RomaniaProvider } from './vs-images/providers/RomaniaProvider.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -41,8 +42,10 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const registryPath = imageRegistryFilePath || resolveConfiguredPath(env.VS_IMAGE_REGISTRY_FILE) || path.resolve(projectRoot, 'data', 'runtime', 'vs-image-registry.json');
   const imageRegistry = new VsImageRegistry(registryPath).load();
   const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache, imageRegistry);
-  const resolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
-  const imageResolver = resolverEnabled ? new VsImageResolver({
+  const runtimeResolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
+  const pendingResolverEnabled = enabled(env.VS_PENDING_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
+  const pendingResolverAvailable = Boolean(imageResolutionCache);
+  const imageResolver = (runtimeResolverEnabled || pendingResolverAvailable) ? new VsImageResolver({
     repository: bootstrapRepository,
     cache: imageResolutionCache,
     providers: [new RomaniaProvider({ fetchImpl })],
@@ -51,7 +54,11 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
     checkpointEvery: env.VS_RUNTIME_IMAGE_RESOLVER_CHECKPOINT_EVERY || 10,
     onProgress: ({ completed, total, candidate, summary }) => console.log(`VS runtime images ${completed}/${total} ${candidate.styleColor} ${JSON.stringify(summary)}`)
   }) : null;
-  const service = new VsProductService(repository);
+  const pendingImageResolver = pendingResolverAvailable ? new VsPendingImageResolver({
+    registry: imageRegistry, imageResolver, runtimeRepository: repository, cache: imageResolutionCache,
+    batchSize: env.VS_PENDING_RESOLVER_BATCH_SIZE, dryRun: enabled(env.VS_PENDING_RESOLVER_DRY_RUN)
+  }) : null;
+  const service = new VsProductService(repository, { pendingImageResolver });
   const api = vsProductApi(service);
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, 'http://localhost');
@@ -64,16 +71,19 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
       return response.end(content);
     } catch { response.writeHead(404, jsonHeaders); return response.end(JSON.stringify({ error: 'Not found' })); }
   });
-  return { server, service, repository, bootstrapRepository, imageResolutionCache, imageRegistry, imageResolver, close: async () => new Promise(resolve => server.close(resolve)) };
+  return { server, service, repository, bootstrapRepository, imageResolutionCache, imageRegistry, imageResolver, pendingImageResolver, runtimeResolverEnabled, pendingResolverEnabled, close: async () => new Promise(resolve => server.close(resolve)) };
 };
 
 export const startVsServer = async options => {
   const application = createVsApplicationServer(options);
   const port = options?.port ?? options?.env?.VS_PORT ?? process.env.VS_PORT ?? 3001;
   await new Promise((resolve, reject) => { application.server.once('error', reject); application.server.listen(port, '127.0.0.1', resolve); });
-  if (application.imageResolver) application.imageResolver.resolveAll()
+  if (application.runtimeResolverEnabled && application.imageResolver) application.imageResolver.resolveAll()
     .then(summary => console.log(`VS runtime images: ${JSON.stringify(summary)}`))
     .catch(error => console.warn(`VS runtime image resolver falló: ${error.message}`));
+  if (application.pendingResolverEnabled && application.pendingImageResolver) application.pendingImageResolver.runBatch()
+    .then(summary => console.log(`VS pending images: ${JSON.stringify(summary)}`))
+    .catch(error => console.warn(`VS pending image resolver failed: ${error.message}`));
   return application;
 };
 

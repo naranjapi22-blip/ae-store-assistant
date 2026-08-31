@@ -11,6 +11,25 @@ export function vsProductApi(service) {
       response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       return response.end(JSON.stringify({ items: service.imageCoveragePending?.() ?? [] }));
     }
+    if (pathname === '/api/vs/image-coverage/resolve-pending') {
+      if (request.method !== 'POST') {
+        response.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'POST' });
+        return response.end(JSON.stringify({ error: 'Method not allowed' }));
+      }
+      if (typeof service.resolvePendingImages !== 'function') {
+        response.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify({ error: 'VS pending resolver not available' }));
+      }
+      try {
+        const result = await service.resolvePendingImages();
+        response.writeHead(result ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify(result ?? { error: 'VS pending resolver not available' }));
+      } catch (error) {
+        const running = error?.code === 'VS_PENDING_RESOLVER_RUNNING';
+        response.writeHead(running ? 409 : 500, { 'Content-Type': 'application/json; charset=utf-8' });
+        return response.end(JSON.stringify({ error: running ? 'VS pending resolver already running' : 'No se pudo resolver pendientes VS' }));
+      }
+    }
     if (pathname === '/api/vs/catalog') {
       try {
         const catalog = service.searchCatalog({
