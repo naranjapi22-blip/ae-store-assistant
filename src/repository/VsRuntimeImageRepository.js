@@ -46,6 +46,9 @@ export class VsRuntimeImageRepository {
   }
 
   bootstrapImageFor(row) {
+    if (row?.image && isUrl(row.image) && clean(row.imageSource) && row.imageIsReference !== true) {
+      return { image: row.image, imageSource: row.imageSource };
+    }
     const resolved = typeof this.repository?.toPublicRow === 'function' ? this.repository.toPublicRow(row) : row;
     if (!resolved?.image || !isUrl(resolved.image) || !clean(resolved.imageSource)) return null;
     return { image: resolved.image, imageSource: resolved.imageSource };
@@ -141,9 +144,23 @@ export class VsRuntimeImageRepository {
     return (await this.repository.findByStyleColor(style, color)).map(item => this.enrich(item));
   }
 
+  catalogItemFor(item) {
+    const enriched = this.enrich(item);
+    const reference = enriched.imageIsReference === true;
+    return {
+      ...enriched,
+      exactImage: Boolean(enriched.image) && !reference,
+      imageIsReference: reference,
+      requestedColor: reference ? (clean(enriched.requestedColor) || null) : null,
+      referenceImageColor: reference ? (clean(enriched.referenceImageColor) || null) : null,
+      referenceImageSource: reference ? (clean(enriched.referenceImageSource) || null) : null,
+      referenceImageBarcode: reference ? (clean(enriched.referenceImageBarcode) || null) : null
+    };
+  }
+
   searchCatalog(options = {}) {
     const result = this.repository.searchCatalog(options);
-    return { ...result, items: result.items.map(item => this.enrich(item)) };
+    return { ...result, items: result.items.map(item => this.catalogItemFor(item)) };
   }
 
   catalogFacets() { return this.repository.catalogFacets(); }
