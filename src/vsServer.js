@@ -35,7 +35,7 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath });
   const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
-  const repository = imageResolutionCache ? new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache) : bootstrapRepository;
+  const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache);
   const resolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
   const imageResolver = resolverEnabled ? new VsImageResolver({
     repository: bootstrapRepository,
