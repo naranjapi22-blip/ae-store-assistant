@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { styleColorFromParts } from './VsImageIdentity.js';
+import { createRetryPolicy, providerRetryInfo } from './VsImageRetryPolicy.js';
 
 const VERSION = 1;
 const STATUSES = new Set(['MATCHED_SAFE', 'PENDING', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT']);
@@ -36,6 +37,15 @@ const sanitizeEntry = (key, value = {}) => {
     checkedProviders: providerNames(value.checkedProviders),
     barcodes: [...new Set((Array.isArray(value.barcodes) ? value.barcodes : []).map(clean).filter(Boolean))].sort()
   };
+  const checks = value.providerChecks && typeof value.providerChecks === 'object' ? value.providerChecks : {};
+  const providerChecks = {};
+  for (const provider of Object.keys(checks)) {
+    const check = checks[provider] ?? {};
+    const lastStatus = clean(check.lastStatus).toUpperCase();
+    if (lastStatus || clean(check.lastCheckedAt)) providerChecks[clean(provider)] = { lastCheckedAt: clean(check.lastCheckedAt) || null, lastStatus, attemptCount: Math.max(0, Math.floor(Number(check.attemptCount) || 0)) };
+  }
+  for (const provider of entry.checkedProviders) if (!providerChecks[provider]) providerChecks[provider] = { lastCheckedAt: entry.lastCheckedAt || entry.firstSeenAt || null, lastStatus: 'NO_MATCH', attemptCount: 1 };
+  if (Object.keys(providerChecks).length) entry.providerChecks = providerChecks;
   if (status === 'MATCHED_SAFE' && isUrl(value.imageUrl) && clean(value.source)) {
     entry.imageUrl = clean(value.imageUrl);
     entry.source = clean(value.source);
@@ -44,9 +54,10 @@ const sanitizeEntry = (key, value = {}) => {
 };
 
 export class VsImageRegistry {
-  constructor(filePath, { now = () => new Date().toISOString() } = {}) {
+  constructor(filePath, { now = () => new Date().toISOString(), retryPolicy = {} } = {}) {
     this.filePath = filePath;
     this.now = now;
+    this.retryPolicy = createRetryPolicy(retryPolicy);
     this.entries = new Map();
     this.inStock = new Map();
     this.classifications = new Map();
@@ -141,16 +152,21 @@ export class VsImageRegistry {
     return this;
   }
 
-  summary({ availableProviders = [] } = {}) {
+  summary({ availableProviders = [], retryPolicy = this.retryPolicy } = {}) {
     const counts = { MATCHED_SAFE: 0, PENDING: 0, NO_MATCH: 0, REQUEST_ERROR: 0, IDENTITY_CONFLICT: 0 };
     for (const key of this.inStock.keys()) {
       const status = this.entries.get(key)?.status ?? 'PENDING';
       counts[status] += 1;
     }
     const styleColorsInStock = this.inStock.size;
-    const pending = [...this.inStock.keys()].filter(key => this.entries.get(key)?.status === 'PENDING');
+    const pending = [...this.inStock.keys()].filter(key => ['PENDING', 'REQUEST_ERROR'].includes(this.entries.get(key)?.status));
     const available = providerNames(availableProviders);
-    const actionable = pending.filter(key => available.some(provider => !this.entries.get(key)?.checkedProviders?.includes(provider)));
+    const nowMs = Date.parse(this.now());
+    const retryInfo = pending.map(key => providerRetryInfo({ entry: this.entries.get(key), providerNames: available, nowMs, policy: retryPolicy }));
+    const actionable = retryInfo.filter(item => item.actionable);
+    const coolingDown = retryInfo.filter(item => !item.actionable && item.reason === 'COOLDOWN');
+    const errorsRetryable = retryInfo.filter(item => item.actionable && item.lastStatus === 'REQUEST_ERROR');
+    const neverChecked = retryInfo.filter(item => item.reason === 'NEVER_CHECKED');
     return {
       styleColorsInStock,
       matchedSafe: counts.MATCHED_SAFE,
@@ -160,6 +176,10 @@ export class VsImageRegistry {
       identityConflict: counts.IDENTITY_CONFLICT,
       pendingActionable: actionable.length,
       pendingExhaustedCurrentProviders: pending.length - actionable.length,
+      pendingActionableNow: actionable.length,
+      pendingCoolingDown: coolingDown.length,
+      requestErrorsRetryableNow: errorsRetryable.length,
+      pendingNeverChecked: neverChecked.length,
       exactCoveragePercent: styleColorsInStock ? (counts.MATCHED_SAFE / styleColorsInStock) * 100 : 0
     };
   }
@@ -179,6 +199,10 @@ export class VsImageRegistry {
         pending: registry.pending,
         pendingActionable: registry.pendingActionable,
         pendingExhaustedCurrentProviders: registry.pendingExhaustedCurrentProviders,
+        pendingActionableNow: registry.pendingActionableNow,
+        pendingCoolingDown: registry.pendingCoolingDown,
+        requestErrorsRetryableNow: registry.requestErrorsRetryableNow,
+        pendingNeverChecked: registry.pendingNeverChecked,
         noMatch: registry.noMatch,
         requestError: registry.requestError,
         identityConflict: registry.identityConflict,
@@ -196,7 +220,7 @@ export class VsImageRegistry {
     const available = providerNames(availableProviders);
     return [...this.inStock.entries()]
       .map(([key, rows]) => ({ key, entry: this.entries.get(key), rows }))
-      .filter(item => item.entry?.status === 'PENDING')
+      .filter(item => ['PENDING', 'REQUEST_ERROR'].includes(item.entry?.status))
       .map(({ entry, rows }) => ({
         STYLE: entry.style,
         COLOR: entry.color,
@@ -211,7 +235,7 @@ export class VsImageRegistry {
         lastCheckedAt: entry.lastCheckedAt,
         attemptCount: entry.attemptCount ?? 0,
         checkedProviders: providerNames(entry.checkedProviders),
-        actionable: available.some(provider => !entry.checkedProviders?.includes(provider))
+        ...providerRetryInfo({ entry, providerNames: available, nowMs: Date.parse(this.now()), policy: this.retryPolicy })
       }))
       .sort((left, right) => right.stockActualTotal - left.stockActualTotal
         || clean(left.firstSeenAt).localeCompare(clean(right.firstSeenAt))
@@ -219,11 +243,15 @@ export class VsImageRegistry {
   }
 
   pendingEntries(options = {}) {
+    const priority = { NEVER_CHECKED: 0, REQUEST_ERROR_RETRY_DUE: 1, NO_MATCH_RETRY_DUE: 2 };
     return this.pending(options).filter(item => item.actionable).map(item => ({
       ...item,
       key: styleColorFromParts(item.STYLE, item.COLOR),
       rows: this.inStock.get(styleColorFromParts(item.STYLE, item.COLOR)) ?? []
-    }));
+    })).sort((left, right) => (priority[left.reason] ?? 3) - (priority[right.reason] ?? 3)
+      || right.stockActualTotal - left.stockActualTotal
+      || (left.firstSeenAt ?? '').localeCompare(right.firstSeenAt ?? '')
+      || left.STYLE.localeCompare(right.STYLE) || left.COLOR.localeCompare(right.COLOR));
   }
 
   recordResolution(styleColor, result = {}, { requiredProviderNames = [] } = {}) {
@@ -236,6 +264,9 @@ export class VsImageRegistry {
     const checkedProviders = providerNames([...(existing.checkedProviders ?? []), ...completedProviders]);
     const required = providerNames(requiredProviderNames);
     const globalNoMatch = status === 'NO_MATCH' && required.length > 0 && required.every(provider => checkedProviders.includes(provider));
+    const providerName = clean(result.providerName) || providerNames(result.checkedProviders).at(-1) || null;
+    const previousCheck = providerName ? existing.providerChecks?.[providerName] : null;
+    const providerChecks = providerName ? { ...(existing.providerChecks ?? {}), [providerName]: { lastCheckedAt: this.now(), lastStatus: status, attemptCount: (previousCheck?.attemptCount ?? 0) + 1 } } : existing.providerChecks;
     const updated = {
       ...existing,
       status: globalNoMatch ? 'NO_MATCH' : (status === 'NO_MATCH' ? 'PENDING' : status),
@@ -243,6 +274,7 @@ export class VsImageRegistry {
       lastCheckedAt: this.now(),
       checkedProviders
     };
+    if (providerChecks && Object.keys(providerChecks).length) updated.providerChecks = providerChecks;
     delete updated.imageUrl;
     delete updated.source;
     if (status === 'MATCHED_SAFE') {

@@ -13,6 +13,7 @@ import { VsImageRegistry } from './vs-images/VsImageRegistry.js';
 import { VsImageResolver } from './vs-images/VsImageResolver.js';
 import { VsPendingImageResolver } from './vs-images/VsPendingImageResolver.js';
 import { RomaniaProvider } from './vs-images/providers/RomaniaProvider.js';
+import { createRetryPolicy } from './vs-images/VsImageRetryPolicy.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(root, '..');
@@ -40,7 +41,7 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const runtimeCachePath = runtimeImageCacheFilePath || resolveLocalFile(env.VS_RUNTIME_IMAGE_CACHE_FILE, defaultVsDataFile('vs_image_resolution_cache.json'));
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
   const registryPath = imageRegistryFilePath || resolveConfiguredPath(env.VS_IMAGE_REGISTRY_FILE) || path.resolve(projectRoot, 'data', 'runtime', 'vs-image-registry.json');
-  const imageRegistry = new VsImageRegistry(registryPath).load();
+  const imageRegistry = new VsImageRegistry(registryPath, { retryPolicy: createRetryPolicy(env) }).load();
   const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache, imageRegistry);
   const runtimeResolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
   const pendingResolverEnabled = enabled(env.VS_PENDING_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
