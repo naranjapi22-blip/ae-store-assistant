@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { VsImageRegistry } from '../src/vs-images/VsImageRegistry.js';
 import { VsImageResolutionCache } from '../src/vs-images/VsImageResolutionCache.js';
 import { VsPendingImageResolver, pendingBatchSize } from '../src/vs-images/VsPendingImageResolver.js';
@@ -26,7 +29,7 @@ const setup = (rows, resolverResult = { status: 'MATCHED_SAFE', imageUrl: 'https
   const cache = new VsImageResolutionCache();
   const runtime = new VsRuntimeImageRepository(fakeRepository(rows), cache, registry);
   const calls = [];
-  const imageResolver = { async resolveCandidate(candidate) { calls.push(candidate); return typeof resolverResult === 'function' ? resolverResult(candidate) : resolverResult; } };
+  const imageResolver = { providers: [{ name: 'vs-romania' }], async resolveCandidate(candidate) { calls.push(candidate); const result = typeof resolverResult === 'function' ? resolverResult(candidate) : resolverResult; return { ...result, checkedProviders: result.status === 'REQUEST_ERROR' ? [] : ['vs-romania'] }; } };
   return { registry, cache, runtime, calls, pending: new VsPendingImageResolver({ registry, cache, runtimeRepository: runtime, imageResolver }) };
 };
 
@@ -42,9 +45,14 @@ test('pending resolver processes only pending identities once, ordered by stock 
   const result = await pending.runBatch({ limit: 50 });
   assert.equal(result.processed, 2);
   assert.deepEqual(calls.map(item => item.styleColor), ['11250002-2ABC', '11250001-1ABC']);
-  assert.equal(registry.entries.get('11250002-2ABC').status, 'NO_MATCH');
+  assert.equal(registry.entries.get('11250002-2ABC').status, 'PENDING');
+  assert.deepEqual(registry.entries.get('11250002-2ABC').checkedProviders, ['vs-romania']);
   assert.equal(registry.entries.get('11250001-1ABC').attemptCount, 1);
   assert.equal(registry.entries.get('11250003-3ABC').status, 'REQUEST_ERROR');
+  const second = await pending.runBatch({ limit: 50 });
+  assert.equal(second.processed, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(registry.summary({ availableProviders: ['vs-romania'] }).pendingActionable, 0);
 });
 
 test('batch limits, conservative results, and an existing MATCHED_SAFE never degrade', async () => {
@@ -84,4 +92,28 @@ test('resolve-pending endpoint returns 409 while a batch is running', async () =
   const res = response(); await api({ method: 'POST', url: '/api/vs/image-coverage/resolve-pending' }, res);
   assert.equal(res.result.status, 409); assert.equal(JSON.parse(res.result.body).error, 'VS pending resolver already running');
   release(); await first;
+});
+
+test('provider NO_MATCH stays pending until an explicit required cascade is complete and persists checked providers', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'vs-pending-providers-'));
+  try {
+    const file = path.join(dir, 'registry.json');
+    const registry = new VsImageRegistry(file).load();
+    const item = row('1', '11254001', '1ABC', 1);
+    registry.reconcile([item], () => null);
+    registry.recordResolution('11254001-1ABC', { status: 'NO_MATCH', checkedProviders: ['vs-romania', 'vs-romania', 4] });
+    assert.equal(registry.entries.get('11254001-1ABC').status, 'PENDING');
+    assert.deepEqual(registry.entries.get('11254001-1ABC').checkedProviders, ['vs-romania']);
+    assert.equal(registry.pending({ availableProviders: ['vs-romania'] })[0].actionable, false);
+    const reloaded = new VsImageRegistry(file).load();
+    assert.deepEqual(reloaded.entries.get('11254001-1ABC').checkedProviders, ['vs-romania']);
+    reloaded.reconcile([item], () => null);
+    const error = reloaded.recordResolution('11254001-1ABC', { status: 'REQUEST_ERROR', checkedProviders: ['vs-romania'] });
+    assert.equal(error.status, 'REQUEST_ERROR');
+    assert.deepEqual(error.checkedProviders, ['vs-romania']);
+    // El registry legado sin checkedProviders carga como una lista vacía.
+    const legacyFile = path.join(dir, 'legacy.json');
+    await writeFile(legacyFile, JSON.stringify({ version: 1, entries: { '11254002-2ABC': { style: '11254002', color: '2ABC', status: 'PENDING', barcodes: [] } } }));
+    assert.deepEqual(new VsImageRegistry(legacyFile).load().entries.get('11254002-2ABC').checkedProviders, []);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

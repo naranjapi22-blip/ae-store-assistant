@@ -157,7 +157,8 @@ export class VsProductService {
     return this.repository.searchCatalog(options);
   }
 
-  imageCoverage() { return this.repository.imageCoverage?.() ?? null; }
-  imageCoveragePending() { return this.repository.imageCoveragePending?.() ?? []; }
+  pendingProviderOptions() { return { availableProviders: this.pendingImageResolver?.providerNames ?? [] }; }
+  imageCoverage() { return this.repository.imageCoverage?.(this.pendingProviderOptions()) ?? null; }
+  imageCoveragePending() { return this.repository.imageCoveragePending?.(this.pendingProviderOptions()) ?? []; }
   resolvePendingImages(options) { return this.pendingImageResolver?.runBatch(options) ?? null; }
 }

@@ -20,7 +20,7 @@ const technicalFailure = error => ({
 });
 
 export class VsPendingImageResolver {
-  constructor({ registry, imageResolver, runtimeRepository, cache, batchSize = DEFAULT_BATCH_SIZE, dryRun = false } = {}) {
+  constructor({ registry, imageResolver, runtimeRepository, cache, batchSize = DEFAULT_BATCH_SIZE, dryRun = false, requiredProviderNames = [] } = {}) {
     if (!registry) throw new Error('VsPendingImageResolver requiere registry');
     if (!imageResolver) throw new Error('VsPendingImageResolver requiere imageResolver');
     if (!runtimeRepository) throw new Error('VsPendingImageResolver requiere runtimeRepository');
@@ -30,11 +30,13 @@ export class VsPendingImageResolver {
     this.cache = cache;
     this.batchSize = pendingBatchSize(batchSize);
     this.dryRun = dryRun === true;
+    this.providerNames = [...new Set((imageResolver.providers ?? []).map(provider => clean(provider?.name)).filter(Boolean))];
+    this.requiredProviderNames = [...new Set((Array.isArray(requiredProviderNames) ? requiredProviderNames : []).map(clean).filter(Boolean))];
     this.running = false;
   }
 
   select(limit = this.batchSize) {
-    return this.registry.pendingEntries().slice(0, pendingBatchSize(limit)).map(item => ({
+    return this.registry.pendingEntries({ availableProviders: this.providerNames }).slice(0, pendingBatchSize(limit)).map(item => ({
       ...item,
       representative: representativeFor(item.rows)
     })).filter(item => item.key && item.representative);
@@ -50,8 +52,10 @@ export class VsPendingImageResolver {
     try {
       const selected = this.select(limit);
       const summary = {
-        requested: pendingBatchSize(limit), processed: 0, matchedSafe: 0, noMatch: 0,
-        requestError: 0, identityConflict: 0, remainingPending: this.registry.pending().length,
+        requested: pendingBatchSize(limit), processed: 0, matchedSafe: 0, noMatch: 0, providerNoMatch: 0,
+        requestError: 0, identityConflict: 0, pendingTotal: this.registry.pending().length,
+        pendingActionable: this.registry.pending({ availableProviders: this.providerNames }).filter(item => item.actionable).length,
+        remainingPending: this.registry.pending().length,
         dryRun: Boolean(dryRun), items: selected.map(item => ({
           STYLE: item.STYLE, COLOR: item.COLOR, stockActualTotal: item.stockActualTotal,
           departamento: item.departamento, barcodes: item.barcodes, firstSeenAt: item.firstSeenAt,
@@ -64,25 +68,30 @@ export class VsPendingImageResolver {
         const styleColor = styleColorFromParts(item.STYLE, item.COLOR);
         let result;
         try {
-          result = await this.imageResolver.resolveCandidate({ style: item.STYLE, color: item.COLOR, styleColor }, this.cache?.get(styleColor));
+          result = await this.imageResolver.resolveCandidate({ style: item.STYLE, color: item.COLOR, styleColor }, { checkedProviders: item.checkedProviders });
         } catch (error) { result = technicalFailure(error); }
         const status = clean(result?.status).toUpperCase();
         if (this.cache && ['MATCHED_SAFE', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT'].includes(status)) {
           this.cache.set(styleColor, result);
         }
-        const entry = this.registry.recordResolution(styleColor, result);
+        const entry = this.registry.recordResolution(styleColor, result, { requiredProviderNames: this.requiredProviderNames });
         if (!entry) continue;
         summary.processed += 1;
         if (status === 'MATCHED_SAFE') {
           summary.matchedSafe += 1;
           this.runtimeRepository.registerRuntimeMatch?.(styleColor, entry);
-        } else if (status === 'NO_MATCH') summary.noMatch += 1;
+        } else if (status === 'NO_MATCH') {
+          summary.providerNoMatch += 1;
+          if (entry.status === 'NO_MATCH') summary.noMatch += 1;
+        }
         else if (status === 'IDENTITY_CONFLICT') summary.identityConflict += 1;
         else summary.requestError += 1;
         if (status === 'IDENTITY_CONFLICT') break;
       }
       if (this.cache?.filePath) this.cache.save();
       summary.remainingPending = this.registry.pending().length;
+      summary.pendingTotal = summary.remainingPending;
+      summary.pendingActionable = this.registry.pending({ availableProviders: this.providerNames }).filter(item => item.actionable).length;
       return summary;
     } finally { this.running = false; }
   }
