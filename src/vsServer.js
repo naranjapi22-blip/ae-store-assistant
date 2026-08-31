@@ -21,7 +21,7 @@ const resolveConfiguredPath = value => value ? (path.isAbsolute(value) ? value :
 const enabled = value => ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot, fetchImpl = globalThis.fetch } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, vsSupplementalImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot, fetchImpl = globalThis.fetch } = {}) => {
   const defaultVsDataFile = file => path.resolve(configuredProjectRoot, '..', '..', 'VSImageTest', file);
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, defaultVsDataFile('vs_inventory_master.json'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
@@ -32,7 +32,9 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const vsIndiaPath = vsIndiaImageFilePath || resolveLocalFile(env.VS_INDIA_IMAGE_FILE, defaultVsDataFile('vs_india_images.json'));
   const vsMaltaPath = vsMaltaImageFilePath || resolveLocalFile(env.VS_MALTA_IMAGE_FILE, defaultVsDataFile('vs_malta_images.json'));
   const vsRomaniaPath = vsRomaniaImageFilePath || resolveLocalFile(env.VS_ROMANIA_IMAGE_FILE, defaultVsDataFile('vs_romania_images.json'));
-  const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath });
+  const bundledSupplementalPath = path.resolve(projectRoot, 'data', 'vs-research', 'vs_supplemental_safe.json');
+  const vsSupplementalPath = vsSupplementalImageFilePath || resolveLocalFile(env.VS_SUPPLEMENTAL_IMAGE_FILE, defaultVsDataFile('vs_supplemental_safe.json')) || (existsSync(bundledSupplementalPath) ? bundledSupplementalPath : null);
+  const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath, vsSupplementalImageFilePath: vsSupplementalPath });
   const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
   const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache);
