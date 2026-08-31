@@ -45,7 +45,7 @@ const firstDefined = (row, aliases) => {
 };
 
 export class VsExcelProductRepository extends ProductRepository {
-  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null } = {}) {
+  constructor(stockFilePath, { imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, vsSupplementalImageFilePath = null } = {}) {
     super();
     const started = performance.now();
     this.stockFilePath = stockFilePath;
@@ -57,6 +57,7 @@ export class VsExcelProductRepository extends ProductRepository {
     this.vsIndiaImagesByBarcode = new Map();
     this.vsMaltaImagesByBarcode = new Map();
     this.vsRomaniaImagesByBarcode = new Map();
+    this.vsSupplementalImagesByBarcode = new Map();
     this.metadataByBarcode = new Map();
     this.readImageCatalog(imageCatalogFilePath);
     this.readHistoricalImageCatalog(historicalImageFilePath);
@@ -65,6 +66,7 @@ export class VsExcelProductRepository extends ProductRepository {
     this.readVsIndiaImageCatalog(vsIndiaImageFilePath);
     this.readVsMaltaImageCatalog(vsMaltaImageFilePath);
     this.readVsRomaniaImageCatalog(vsRomaniaImageFilePath);
+    this.readVsSupplementalImageCatalog(vsSupplementalImageFilePath);
     this.byBarcode = new Map();
     this.byReference = new Map();
     this.byStyle = new Map();
@@ -100,10 +102,11 @@ export class VsExcelProductRepository extends ProductRepository {
     this.vsIndiaImagesLoaded = this.vsIndiaImagesByBarcode.size;
     this.vsMaltaImagesLoaded = this.vsMaltaImagesByBarcode.size;
     this.vsRomaniaImagesLoaded = this.vsRomaniaImagesByBarcode.size;
-    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded + this.vsCrImagesLoaded + this.vsIndiaImagesLoaded + this.vsMaltaImagesLoaded + this.vsRomaniaImagesLoaded;
+    this.vsSupplementalImagesLoaded = this.vsSupplementalImagesByBarcode.size;
+    this.imagesLoaded = this.currentImagesLoaded + this.historicalImagesLoaded + this.styleColorImagesLoaded + this.vsCrImagesLoaded + this.vsIndiaImagesLoaded + this.vsMaltaImagesLoaded + this.vsRomaniaImagesLoaded + this.vsSupplementalImagesLoaded;
     this.reliableImagesLoaded = this.imagesLoaded;
     this.totalImagesLoaded = this.imagesLoaded;
-    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.vsCrImagesLoaded} vs-cr-refid; ${this.vsIndiaImagesLoaded} vs-india; ${this.vsMaltaImagesLoaded} vs-malta; ${this.vsRomaniaImagesLoaded} vs-romania; ${this.imagesLoaded} imagenes`);
+    console.log(`VS cargado en ${this.loadTimeMs} ms; ${this.barcodesIndexed} barcodes; ${this.currentImagesLoaded} current; ${this.historicalImagesLoaded} historical; ${this.styleColorImagesLoaded} style-color; ${this.vsCrImagesLoaded} vs-cr-refid; ${this.vsIndiaImagesLoaded} vs-india; ${this.vsMaltaImagesLoaded} vs-malta; ${this.vsRomaniaImagesLoaded} vs-romania; ${this.vsSupplementalImagesLoaded} supplemental-safe; ${this.imagesLoaded} imagenes`);
   }
 
   readStock(filePath) {
@@ -287,6 +290,44 @@ export class VsExcelProductRepository extends ProductRepository {
     }
   }
 
+  readVsSupplementalImageCatalog(filePath) {
+    if (!filePath || !existsSync(filePath)) return;
+    const acceptedSources = new Set(['vs-australia', 'vs-mena', 'vs-singapore', 'vs-mexico']);
+    const conflictingBarcodes = new Set();
+    try {
+      for (const row of this.readJsonRows(filePath, 'recuperacion VS supplemental safe')) {
+        const barcode = clean(row.barcode ?? row.CODBARRAS);
+        const style = clean(row.style ?? row.STYLE);
+        const color = clean(row.color ?? row.COLOR);
+        const styleColor = clean(row.styleColor);
+        const url = clean(row.imageUrl ?? row.image_url ?? row.image);
+        const source = clean(row.source).toLowerCase();
+        const evidence = row.evidence ?? {};
+        const imageValidation = evidence.imageValidation ?? {};
+        const expectedStyleColor = style && color ? `${style}-${color}` : '';
+        const valid = clean(row.classification).toUpperCase() === 'MATCHED_SAFE'
+          && acceptedSources.has(source) && barcode && expectedStyleColor === styleColor
+          && clean(evidence.localBarcode) === barcode && clean(evidence.localStyleColor) === styleColor
+          && isUrl(url) && imageValidation.ok === true
+          && Number(imageValidation.status) >= 200 && Number(imageValidation.status) < 300
+          && /^image\//i.test(clean(imageValidation.contentType)) && clean(imageValidation.url) === url;
+        if (!valid || conflictingBarcodes.has(barcode)
+          || this.imagesByBarcode.has(barcode) || this.historicalImagesByBarcode.has(barcode)
+          || this.styleColorImagesByBarcode.has(barcode) || this.vsCrImagesByBarcode.has(barcode)
+          || this.vsIndiaImagesByBarcode.has(barcode) || this.vsMaltaImagesByBarcode.has(barcode)
+          || this.vsRomaniaImagesByBarcode.has(barcode)) continue;
+        const existing = this.vsSupplementalImagesByBarcode.get(barcode);
+        if (existing && (existing.url !== url || existing.source !== source || existing.styleColor !== styleColor)) {
+          this.vsSupplementalImagesByBarcode.delete(barcode);
+          conflictingBarcodes.add(barcode);
+        } else if (!existing) this.vsSupplementalImagesByBarcode.set(barcode, { url, source, styleColor });
+      }
+    } catch (error) {
+      this.vsSupplementalImagesByBarcode.clear();
+      console.warn(`No se pudo cargar recuperacion VS supplemental safe: ${error.message}`);
+    }
+  }
+
   imageFor(row) {
     if (this.imagesByBarcode.has(row.CODBARRAS)) return { image: this.imagesByBarcode.get(row.CODBARRAS), source: 'current' };
     if (this.historicalImagesByBarcode.has(row.CODBARRAS)) return { image: this.historicalImagesByBarcode.get(row.CODBARRAS), source: 'historical' };
@@ -295,6 +336,10 @@ export class VsExcelProductRepository extends ProductRepository {
     if (this.vsIndiaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsIndiaImagesByBarcode.get(row.CODBARRAS), source: 'vs-india' };
     if (this.vsMaltaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsMaltaImagesByBarcode.get(row.CODBARRAS), source: 'vs-malta' };
     if (this.vsRomaniaImagesByBarcode.has(row.CODBARRAS)) return { image: this.vsRomaniaImagesByBarcode.get(row.CODBARRAS).url, source: 'vs-romania' };
+    if (this.vsSupplementalImagesByBarcode.has(row.CODBARRAS)) {
+      const supplemental = this.vsSupplementalImagesByBarcode.get(row.CODBARRAS);
+      return { image: supplemental.url, source: `vs-supplemental-safe:${supplemental.source}` };
+    }
     return { image: null, source: null };
   }
 
@@ -382,6 +427,7 @@ export class VsExcelProductRepository extends ProductRepository {
       vsIndiaImagesLoaded: this.vsIndiaImagesLoaded,
       vsMaltaImagesLoaded: this.vsMaltaImagesLoaded,
       vsRomaniaImagesLoaded: this.vsRomaniaImagesLoaded,
+      vsSupplementalImagesLoaded: this.vsSupplementalImagesLoaded,
       imagesLoaded: this.imagesLoaded, totalImagesLoaded: this.imagesLoaded,
       reliableImagesLoaded: this.reliableImagesLoaded, lastLookupMs: this.lastLookupMs ?? null };
   }
