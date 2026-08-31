@@ -9,6 +9,7 @@ import { VsRuntimeImageRepository } from './repository/VsRuntimeImageRepository.
 import { VsProductService } from './service/VsProductService.js';
 import { loadEnvironment } from './config/environment.js';
 import { VsImageResolutionCache } from './vs-images/VsImageResolutionCache.js';
+import { VsImageRegistry } from './vs-images/VsImageRegistry.js';
 import { VsImageResolver } from './vs-images/VsImageResolver.js';
 import { RomaniaProvider } from './vs-images/providers/RomaniaProvider.js';
 
@@ -21,7 +22,7 @@ const resolveConfiguredPath = value => value ? (path.isAbsolute(value) ? value :
 const enabled = value => ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase());
 const contentTypeFor = file => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
 
-export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, vsSupplementalImageFilePath = null, runtimeImageCacheFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot, fetchImpl = globalThis.fetch } = {}) => {
+export const createVsApplicationServer = ({ env = process.env, stockFilePath = null, imageCatalogFilePath = null, historicalImageFilePath = null, styleColorImageFilePath = null, vsCrImageFilePath = null, vsIndiaImageFilePath = null, vsMaltaImageFilePath = null, vsRomaniaImageFilePath = null, vsSupplementalImageFilePath = null, runtimeImageCacheFilePath = null, imageRegistryFilePath = null, imageCoverageFilePath = null, configuredProjectRoot = projectRoot, fetchImpl = globalThis.fetch } = {}) => {
   const defaultVsDataFile = file => path.resolve(configuredProjectRoot, '..', '..', 'VSImageTest', file);
   const stockPath = stockFilePath || resolveLocalFile(env.VS_STOCK_FILE, defaultVsDataFile('vs_inventory_master.json'));
   if (!stockPath) throw new Error('VS_STOCK_FILE no está configurado o no existe');
@@ -37,7 +38,9 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
   const bootstrapRepository = new VsExcelProductRepository(stockPath, { imageCatalogFilePath: catalogPath, historicalImageFilePath: historicalPath, styleColorImageFilePath: styleColorPath, vsCrImageFilePath: vsCrPath, vsIndiaImageFilePath: vsIndiaPath, vsMaltaImageFilePath: vsMaltaPath, vsRomaniaImageFilePath: vsRomaniaPath, vsSupplementalImageFilePath: vsSupplementalPath });
   const runtimeCachePath = runtimeImageCacheFilePath || resolveConfiguredPath(env.VS_RUNTIME_IMAGE_CACHE_FILE);
   const imageResolutionCache = runtimeCachePath ? new VsImageResolutionCache(runtimeCachePath).load() : null;
-  const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache);
+  const registryPath = imageRegistryFilePath || resolveConfiguredPath(env.VS_IMAGE_REGISTRY_FILE) || path.resolve(projectRoot, 'data', 'runtime', 'vs-image-registry.json');
+  const imageRegistry = new VsImageRegistry(registryPath).load();
+  const repository = new VsRuntimeImageRepository(bootstrapRepository, imageResolutionCache, imageRegistry);
   const resolverEnabled = enabled(env.VS_RUNTIME_IMAGE_RESOLVER_ENABLED) && Boolean(imageResolutionCache);
   const imageResolver = resolverEnabled ? new VsImageResolver({
     repository: bootstrapRepository,
@@ -61,7 +64,7 @@ export const createVsApplicationServer = ({ env = process.env, stockFilePath = n
       return response.end(content);
     } catch { response.writeHead(404, jsonHeaders); return response.end(JSON.stringify({ error: 'Not found' })); }
   });
-  return { server, service, repository, bootstrapRepository, imageResolutionCache, imageResolver, close: async () => new Promise(resolve => server.close(resolve)) };
+  return { server, service, repository, bootstrapRepository, imageResolutionCache, imageRegistry, imageResolver, close: async () => new Promise(resolve => server.close(resolve)) };
 };
 
 export const startVsServer = async options => {

@@ -2,6 +2,15 @@ export function vsProductApi(service) {
   return async (request, response) => {
     const requestUrl = new URL(request.url, 'http://localhost');
     const pathname = requestUrl.pathname;
+    if (pathname === '/api/vs/image-coverage') {
+      const coverage = service.imageCoverage?.();
+      response.writeHead(coverage ? 200 : 404, { 'Content-Type': 'application/json; charset=utf-8' });
+      return response.end(JSON.stringify(coverage ?? { error: 'Cobertura de imÃ¡genes VS no disponible' }));
+    }
+    if (pathname === '/api/vs/image-coverage/pending') {
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      return response.end(JSON.stringify({ items: service.imageCoveragePending?.() ?? [] }));
+    }
     if (pathname === '/api/vs/catalog') {
       try {
         const catalog = service.searchCatalog({
