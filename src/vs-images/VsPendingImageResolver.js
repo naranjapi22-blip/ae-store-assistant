@@ -59,7 +59,12 @@ export class VsPendingImageResolver {
         dryRun: Boolean(dryRun), items: selected.map(item => ({
           STYLE: item.STYLE, COLOR: item.COLOR, stockActualTotal: item.stockActualTotal,
           departamento: item.departamento, barcodes: item.barcodes, firstSeenAt: item.firstSeenAt,
-          representativeBarcode: clean(item.representative.CODBARRAS ?? item.representative.barcode)
+          representativeBarcode: clean(item.representative.CODBARRAS ?? item.representative.barcode),
+          provider: item.provider ?? this.providerNames[0] ?? null,
+          lastProviderStatus: item.lastStatus ?? null,
+          lastProviderCheckedAt: item.lastCheckedAt ?? null,
+          providerAttemptCount: item.attemptCount ?? 0,
+          reason: item.reason
         }))
       };
       if (dryRun) return summary;
@@ -68,11 +73,15 @@ export class VsPendingImageResolver {
         const styleColor = styleColorFromParts(item.STYLE, item.COLOR);
         let result;
         try {
-          result = await this.imageResolver.resolveCandidate({ style: item.STYLE, color: item.COLOR, styleColor }, { checkedProviders: item.checkedProviders });
+          const checkedProviders = item.provider && item.reason !== 'NEVER_CHECKED'
+            ? item.checkedProviders.filter(provider => provider !== item.provider)
+            : item.checkedProviders;
+          result = await this.imageResolver.resolveCandidate({ style: item.STYLE, color: item.COLOR, styleColor }, { checkedProviders });
         } catch (error) { result = technicalFailure(error); }
         const status = clean(result?.status).toUpperCase();
         if (this.cache && ['MATCHED_SAFE', 'NO_MATCH', 'REQUEST_ERROR', 'IDENTITY_CONFLICT'].includes(status)) {
-          this.cache.set(styleColor, result);
+          const persistedResult = { ...result }; delete persistedResult.providerName;
+          this.cache.set(styleColor, persistedResult);
         }
         const entry = this.registry.recordResolution(styleColor, result, { requiredProviderNames: this.requiredProviderNames });
         if (!entry) continue;
