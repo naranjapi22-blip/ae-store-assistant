@@ -20,6 +20,17 @@ const compareSizes = (left, right) => {
 };
 
 const imageRank = item => item?.image ? (item.imageIsReference === true ? 1 : 2) : 0;
+const colorReferenceFields = item => {
+  const reference = item?.colorReference;
+  if (!reference?.image) return null;
+  return {
+    referenceType: clean(reference.referenceType) || 'same-color', image: reference.image,
+    imageSource: clean(reference.imageSource) || null, style: clean(reference.style) || null,
+    color: clean(reference.color) || null, barcode: clean(reference.barcode) || null,
+    department: clean(reference.department) || null, section: clean(reference.section) || null,
+    family: clean(reference.family) || null
+  };
+};
 const imageFields = item => {
   const reference = item?.imageIsReference === true;
   return {
@@ -29,7 +40,8 @@ const imageFields = item => {
     imageIsReference: reference,
     requestedColor: reference ? (clean(item?.requestedColor ?? item?.COLOR ?? item?.color) || null) : null,
     referenceImageColor: reference ? (clean(item?.referenceImageColor) || null) : null,
-    referenceImageSource: reference ? (clean(item?.referenceImageSource) || null) : null
+    referenceImageSource: reference ? (clean(item?.referenceImageSource) || null) : null,
+    colorReference: colorReferenceFields(item)
   };
 };
 
@@ -96,7 +108,7 @@ export class VsProductService {
           image: hasExactImage ? representative.image : null,
           imageSource: hasExactImage ? (representative.imageSource ?? null) : null,
           stock: items.reduce((total, item) => total + Number(item.STOCK ?? 0), 0),
-          sizes: this.buildSizes(items)
+          sizes: this.buildSizes(items), colorReference: colorReferenceFields(representative)
         };
       })
       .sort((left, right) => left.color.localeCompare(right.color));
